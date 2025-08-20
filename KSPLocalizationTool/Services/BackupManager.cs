@@ -1,67 +1,70 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
-using KSPLocalizationTool.Services;
+using System.Linq;
 
 namespace KSPLocalizationTool.Services
 {
     public class BackupManager
     {
-        // 修复：确保字段可为null或在构造函数中初始化
-        private string? _backupDirectory;
+        private string _backupDirectory;
 
         public BackupManager(string backupDirectory)
-        {
-            if (string.IsNullOrEmpty(backupDirectory))
-                throw new ArgumentException("备份目录不能为空", nameof(backupDirectory));
 
-            _backupDirectory = backupDirectory;
-            EnsureDirectoryExists();
+        {
+            SetBackupDirectory(backupDirectory);
         }
 
         public void SetBackupDirectory(string backupDirectory)
         {
             if (string.IsNullOrEmpty(backupDirectory))
-                throw new ArgumentException("备份目录不能为空", nameof(backupDirectory));
+            {
+                backupDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Backup");
+            }
 
             _backupDirectory = backupDirectory;
-            EnsureDirectoryExists();
+            EnsureDirectoryExists(_backupDirectory);
         }
 
-        private void EnsureDirectoryExists()
+        public void BackupFiles(List<string> filePaths)
         {
-            // 修复可能的空引用
-            if (!string.IsNullOrEmpty(_backupDirectory) && !Directory.Exists(_backupDirectory))
-            {
-                Directory.CreateDirectory(_backupDirectory);
-            }
-        }
-
-        public void BackupFile(string filePath)
-        {
-            if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
+            if (filePaths == null || !filePaths.Any())
                 return;
 
-            try
+            // 创建带时间戳的备份子目录
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string backupDirWithTimestamp = Path.Combine(_backupDirectory, timestamp);
+            EnsureDirectoryExists(backupDirWithTimestamp);
+
+            foreach (string filePath in filePaths)
             {
-                // 修复可能的空引用
-                if (string.IsNullOrEmpty(_backupDirectory))
-                    throw new InvalidOperationException("备份目录未设置");
+                try
+                {
+                    if (File.Exists(filePath))
+                    {
+                        // 创建与源文件相同的目录结构
+                        string relativePath = Path.GetDirectoryName(filePath)?.Substring(Path.GetPathRoot(filePath)?.Length ?? 0) ?? "";
+                        string targetDir = Path.Combine(backupDirWithTimestamp, relativePath.TrimStart(Path.DirectorySeparatorChar));
+                        EnsureDirectoryExists(targetDir);
 
-                string fileName = Path.GetFileName(filePath);
-                string relativePath = Path.GetDirectoryName(filePath)?.Replace(
-                    AppDomain.CurrentDomain.BaseDirectory, "") ?? "";
-
-                string backupPath = Path.Combine(_backupDirectory, relativePath);
-                string backupFile = Path.Combine(backupPath,
-                    $"{fileName}.bak_{DateTime.Now:yyyyMMddHHmmss}");
-
-                Directory.CreateDirectory(backupPath);
-                File.Copy(filePath, backupFile, true);
-                LogManager.Log($"已备份文件: {filePath} -> {backupFile}");
+                        // 复制文件
+                        string targetPath = Path.Combine(targetDir, Path.GetFileName(filePath));
+                        File.Copy(filePath, targetPath, true);
+                        LogManager.Log($"已备份文件: {filePath} -> {targetPath}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogManager.Log($"备份文件 {filePath} 失败: {ex.Message}");
+                }
             }
-            catch (Exception ex)
+        }
+
+        private void EnsureDirectoryExists(string directory)
+        {
+            if (!Directory.Exists(directory))
             {
-                LogManager.Log($"备份文件失败: {ex.Message}");
+                Directory.CreateDirectory(directory);
             }
         }
     }

@@ -22,7 +22,8 @@ namespace KSPLocalizationTool.Services
         {
             string entry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}";
             _logEntries.Add(entry);
-
+            
+            // 限制日志条目数量
             if (_logEntries.Count > 1000)
             {
                 _logEntries.RemoveRange(0, _logEntries.Count - 1000);
@@ -44,3 +45,4 @@ namespace KSPLocalizationTool.Services
         }
     }
 }
+    

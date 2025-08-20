@@ -1,53 +1,48 @@
 using System;
 using System.IO;
-using System.Text.Json;
+using System.Xml.Serialization;
 using KSPLocalizationTool.Models;
 
 namespace KSPLocalizationTool.Services
 {
     public static class ConfigManager
     {
-        // 缓存JsonSerializerOptions实例，避免重复创建
-        private static readonly JsonSerializerOptions _jsonOptions = new()
-        {
-            WriteIndented = true,
-            PropertyNameCaseInsensitive = true
-        };
-
         private static string GetConfigPath()
         {
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             string configDir = Path.Combine(appData, "KSPLocalizationTool");
             Directory.CreateDirectory(configDir);
-            return Path.Combine(configDir, "settings.json");
+            return Path.Combine(configDir, "settings.xml");
         }
-
+        
         public static AppSettings? LoadSettings()
         {
             try
             {
-                string path = GetConfigPath();
-                if (File.Exists(path))
+                string configPath = GetConfigPath();
+                if (File.Exists(configPath))
                 {
-                    string json = File.ReadAllText(path);
-                    return JsonSerializer.Deserialize<AppSettings>(json, _jsonOptions);
+                    using var reader = new StreamReader(configPath);
+                    var serializer = new XmlSerializer(typeof(AppSettings));
+                    return serializer.Deserialize(reader) as AppSettings;
                 }
             }
             catch (Exception ex)
             {
                 LogManager.Log($"加载配置失败: {ex.Message}");
             }
+            
             return new AppSettings();
         }
-
+        
         public static void SaveSettings(AppSettings settings)
         {
             try
             {
-                if (settings == null) return;
-
-                string json = JsonSerializer.Serialize(settings, _jsonOptions);
-                File.WriteAllText(GetConfigPath(), json);
+                string configPath = GetConfigPath();
+                using var writer = new StreamWriter(configPath);
+                var serializer = new XmlSerializer(typeof(AppSettings));
+                serializer.Serialize(writer, settings);
             }
             catch (Exception ex)
             {
@@ -56,3 +51,4 @@ namespace KSPLocalizationTool.Services
         }
     }
 }
+    
