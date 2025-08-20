@@ -1,7 +1,6 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
+using System.Collections.Generic;
 
 namespace KSPLocalizationTool.Services
 {
@@ -10,31 +9,40 @@ namespace KSPLocalizationTool.Services
         private string _backupDirectory;
 
         public BackupManager(string backupDirectory)
-
         {
-            SetBackupDirectory(backupDirectory);
+            _backupDirectory = backupDirectory;
+            InitializeBackupDirectory();
         }
 
-        public void SetBackupDirectory(string backupDirectory)
+        private void InitializeBackupDirectory()
         {
-            if (string.IsNullOrEmpty(backupDirectory))
+            if (!string.IsNullOrEmpty(_backupDirectory) && !Directory.Exists(_backupDirectory))
             {
-                backupDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Backup");
+                Directory.CreateDirectory(_backupDirectory);
+                LogManager.Log($"已创建备份目录: {_backupDirectory}");
             }
+        }
 
-            _backupDirectory = backupDirectory;
-            EnsureDirectoryExists(_backupDirectory);
+        public void SetBackupDirectory(string newDirectory)
+        {
+            if (!string.IsNullOrEmpty(newDirectory) && newDirectory != _backupDirectory)
+            {
+                _backupDirectory = newDirectory;
+                InitializeBackupDirectory();
+            }
         }
 
         public void BackupFiles(List<string> filePaths)
         {
-            if (filePaths == null || !filePaths.Any())
+            if (filePaths == null || filePaths.Count == 0)
                 return;
 
-            // 创建带时间戳的备份子目录
-            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            InitializeBackupDirectory();
+
+            // 创建带有时间戳的备份子目录
+            string timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
             string backupDirWithTimestamp = Path.Combine(_backupDirectory, timestamp);
-            EnsureDirectoryExists(backupDirWithTimestamp);
+            Directory.CreateDirectory(backupDirWithTimestamp);
 
             foreach (string filePath in filePaths)
             {
@@ -42,15 +50,15 @@ namespace KSPLocalizationTool.Services
                 {
                     if (File.Exists(filePath))
                     {
-                        // 创建与源文件相同的目录结构
-                        string relativePath = Path.GetDirectoryName(filePath)?.Substring(Path.GetPathRoot(filePath)?.Length ?? 0) ?? "";
-                        string targetDir = Path.Combine(backupDirWithTimestamp, relativePath.TrimStart(Path.DirectorySeparatorChar));
-                        EnsureDirectoryExists(targetDir);
+                        // 创建与原文件相同的目录结构
+                        string relativePath = Path.GetDirectoryName(filePath) ?? "";
+                        string targetDir = Path.Combine(backupDirWithTimestamp, relativePath);
+                        Directory.CreateDirectory(targetDir);
 
-                        // 复制文件
+                        // 复制文件到备份目录
                         string targetPath = Path.Combine(targetDir, Path.GetFileName(filePath));
                         File.Copy(filePath, targetPath, true);
-                        LogManager.Log($"已备份文件: {filePath} -> {targetPath}");
+                        LogManager.Log($"已备份文件: {filePath} 到 {targetPath}");
                     }
                 }
                 catch (Exception ex)
@@ -60,12 +68,9 @@ namespace KSPLocalizationTool.Services
             }
         }
 
-        private void EnsureDirectoryExists(string directory)
+        public void BackupFile(string filePath)
         {
-            if (!Directory.Exists(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
+            BackupFiles(new List<string> { filePath });
         }
     }
 }
