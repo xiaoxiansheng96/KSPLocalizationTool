@@ -1,48 +1,63 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 
 namespace KSPLocalizationTool.Services
 {
     public static class LogManager
     {
-        // 修复IDE0028：简化集合初始化
-        private static readonly List<string> _logEntries = new();
         private static readonly string _logFilePath;
+        private static readonly object _lockObj = new object();
+        private static string _logContent = string.Empty;
 
         static LogManager()
         {
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             string logDir = Path.Combine(appData, "KSPLocalizationTool", "Logs");
             Directory.CreateDirectory(logDir);
-            _logFilePath = Path.Combine(logDir, $"log_{DateTime.Now:yyyyMMdd}.txt");
+            _logFilePath = Path.Combine(logDir, $"{DateTime.Now:yyyyMMdd}.log");
         }
 
         public static void Log(string message)
         {
-            string entry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}";
-            _logEntries.Add(entry);
-            
-            // 限制日志条目数量
-            if (_logEntries.Count > 1000)
+            lock (_lockObj)
             {
-                _logEntries.RemoveRange(0, _logEntries.Count - 1000);
+                string logEntry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}{Environment.NewLine}";
+                _logContent += logEntry;
+
+                try
+                {
+                    File.AppendAllText(_logFilePath, logEntry);
+                }
+                catch (Exception ex)
+                {
+                    // 日志写入失败时不抛出异常，避免影响主程序
+                    Console.WriteLine($"日志写入失败: {ex.Message}");
+                }
             }
         }
 
-        public static IEnumerable<string> GetLogEntries() => _logEntries.AsReadOnly();
-
         public static void SaveLog()
         {
+            // 已在Log方法中实时写入，此处仅作保障
             try
             {
-                File.AppendAllLines(_logFilePath, _logEntries);
+                if (!string.IsNullOrEmpty(_logContent))
+                {
+                    File.AppendAllText(_logFilePath, _logContent);
+                }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"保存日志失败: {ex.Message}");
+                Console.WriteLine($"日志保存失败: {ex.Message}");
+            }
+        }
+
+        public static string GetLogContent()
+        {
+            lock (_lockObj)
+            {
+                return _logContent;
             }
         }
     }
 }
-    

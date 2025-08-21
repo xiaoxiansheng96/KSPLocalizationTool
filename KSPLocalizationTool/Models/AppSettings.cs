@@ -8,4 +8,3 @@ namespace KSPLocalizationTool.Models
         public string TargetLanguage { get; set; } = "zh-cn";
     }
 }
-    

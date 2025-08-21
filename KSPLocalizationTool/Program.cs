@@ -21,7 +21,7 @@ namespace KSPLocalizationTool
             Application.Run(new MainForm());
 
             // 程序退出时保存日志
-            LogManager.SaveLog();
+            LogManager.SaveLogToFile();
         }
     }
 }

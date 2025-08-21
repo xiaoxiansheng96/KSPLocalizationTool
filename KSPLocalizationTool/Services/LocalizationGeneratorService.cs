@@ -1,4 +1,5 @@
-﻿using System;
+﻿// KSPLocalizationTool/Services/LocalizationGeneratorService.cs
+using System;
 using System.Collections.Generic;
 using System.IO;
 using KSPLocalizationTool.Models;
@@ -39,6 +40,9 @@ namespace KSPLocalizationTool.Services
 
             EnsureDirectoryExists();
 
+            // 为没有键的项自动生成键
+            AutoGenerateMissingKeys(items);
+
             // 生成或更新默认语言文件 (en-us.cfg)
             string enUsFilePath = Path.Combine(_localizationDirectory, "en-us.cfg");
             UpdateLocalizationFile(enUsFilePath, items, "en-us");
@@ -46,6 +50,23 @@ namespace KSPLocalizationTool.Services
             // 生成或更新目标语言文件
             string targetFilePath = Path.Combine(_localizationDirectory, $"{_targetLanguageCode}.cfg");
             UpdateLocalizationFile(targetFilePath, items, _targetLanguageCode);
+        }
+
+        // 为缺少键的本地化项自动生成键
+        private void AutoGenerateMissingKeys(List<LocalizationItem> items)
+        {
+            foreach (var item in items)
+            {
+                if (string.IsNullOrEmpty(item.Key))
+                {
+                    // 使用"AutoGen"作为默认参数名
+                    item.Key = LocalizationKeyGenerator.GenerateKey(
+                        item.OriginalText,
+                        "AutoGen",
+                        item.FilePath);
+                    LogManager.Log($"为文本自动生成键: {item.Key}");
+                }
+            }
         }
 
         private void UpdateLocalizationFile(string filePath, List<LocalizationItem> items, string languageCode)
@@ -112,7 +133,7 @@ namespace KSPLocalizationTool.Services
                 if (languageBlockStart != -1 && languageBlockEnd != -1)
                 {
                     // 添加时间注释
-                    string comment = $"    // {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
+                    string comment = $"    // {DateTime.Now:yyyy-MM-dd HH:mm:ss} 自动生成";
                     fileContent.Insert(languageBlockEnd, comment);
 
                     // 添加本地化键值对

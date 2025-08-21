@@ -8,39 +8,33 @@ namespace KSPLocalizationTool.Services
 {
     public class LocalizationFileHandler
     {
-        // 修复IDE0028：简化集合初始化
         private readonly Dictionary<string, string> _localizationData = new();
         private string _languageCode;
         private string _localizationDirectory;
-
-        // 修复IDE0300：简化集合初始化
         private static readonly string[] _supportedExtensions = { ".cfg", ".txt", ".xml" };
 
         public LocalizationFileHandler(string languageCode, string localizationDirectory)
         {
             _languageCode = languageCode ?? "zh-cn";
             _localizationDirectory = localizationDirectory;
-
             LoadLocalizationFiles();
         }
 
-        // 添加缺失的方法：更新目录
         public void UpdateDirectory(string newDirectory)
         {
             if (!string.IsNullOrEmpty(newDirectory) && newDirectory != _localizationDirectory)
             {
                 _localizationDirectory = newDirectory;
-                LoadLocalizationFiles(); // 重新加载文件
+                LoadLocalizationFiles();
             }
         }
 
-        // 添加缺失的方法：设置目标语言
         public void SetTargetLanguage(string languageCode)
         {
             if (!string.IsNullOrEmpty(languageCode) && languageCode != _languageCode)
             {
                 _languageCode = languageCode;
-                LoadLocalizationFiles(); // 重新加载文件
+                LoadLocalizationFiles();
             }
         }
 
@@ -73,21 +67,51 @@ namespace KSPLocalizationTool.Services
 
         private void LoadLocalizationFile(string filePath)
         {
-            // 实现文件加载逻辑
             try
             {
                 string[] lines = File.ReadAllLines(filePath);
+                bool inTargetLanguageBlock = false;
+                int braceLevel = 0;
+
                 foreach (string line in lines)
                 {
-                    // 假设文件格式为 "键=值"
-                    string[] parts = line.Split(new[] { '=' }, 2);
-                    if (parts.Length == 2)
+                    string trimmedLine = line.Trim();
+
+                    // 检测目标语言区块
+                    if (trimmedLine.StartsWith(_languageCode, StringComparison.OrdinalIgnoreCase) &&
+                        trimmedLine.EndsWith("{"))
                     {
-                        string key = parts[0].Trim();
-                        string value = parts[1].Trim();
-                        if (!_localizationData.ContainsKey(key))
+                        inTargetLanguageBlock = true;
+                        braceLevel = 1;
+                        continue;
+                    }
+
+                    // 跟踪括号层级
+                    if (inTargetLanguageBlock)
+                    {
+                        if (trimmedLine == "{") braceLevel++;
+                        else if (trimmedLine == "}") braceLevel--;
+
+                        // 退出目标语言区块
+                        if (braceLevel == 0)
                         {
-                            _localizationData[key] = value;
+                            inTargetLanguageBlock = false;
+                            continue;
+                        }
+
+                        // 提取键值对
+                        if (trimmedLine.Contains('=') && !trimmedLine.StartsWith("//"))
+                        {
+                            string[] parts = trimmedLine.Split(new[] { '=' }, 2);
+                            if (parts.Length == 2)
+                            {
+                                string key = parts[0].Trim();
+                                string value = parts[1].Trim();
+                                if (!_localizationData.ContainsKey(key))
+                                {
+                                    _localizationData[key] = value;
+                                }
+                            }
                         }
                     }
                 }
@@ -98,55 +122,76 @@ namespace KSPLocalizationTool.Services
             }
         }
 
-        public bool IsKeyExists(string key)
-        {
-            return !string.IsNullOrEmpty(key) && _localizationData.ContainsKey(key);
-        }
-
         public string GetLocalizedText(string key)
         {
-            return _localizationData.TryGetValue(key, out string? value) ? value ?? string.Empty : string.Empty;
+            return _localizationData.TryGetValue(key, out string value) ? value : string.Empty;
+        }
+
+        public bool IsKeyExists(string key)
+        {
+            return _localizationData.ContainsKey(key);
         }
 
         public void SaveLocalizationItems(List<LocalizationItem> items)
         {
-            // 按文件分组保存
-            var itemsByFile = items.GroupBy(item => item.FilePath);
+            if (items == null || items.Count == 0) return;
 
-            foreach (var fileGroup in itemsByFile)
-            {
-                SaveLocalizationFile(fileGroup.Key, fileGroup.ToList());
-            }
-        }
-
-        private void SaveLocalizationFile(string filePath, List<LocalizationItem> items)
-        {
             try
             {
-                if (File.Exists(filePath))
+                // 按文件分组处理
+                var itemsByFile = items.GroupBy(i => i.FilePath);
+                foreach (var group in itemsByFile)
                 {
-                    string[] lines = File.ReadAllLines(filePath);
-
-                    for (int i = 0; i < lines.Length; i++)
-                    {
-                        foreach (var item in items)
-                        {
-                            if (lines[i].StartsWith($"{item.Key}="))
-                            {
-                                lines[i] = $"{item.Key}={item.LocalizedText}";
-                                break;
-                            }
-                        }
-                    }
-
-                    File.WriteAllLines(filePath, lines);
+                    ProcessFileForSaving(group.Key, group.ToList());
                 }
             }
             catch (Exception ex)
             {
-                LogManager.Log($"保存文件 {filePath} 失败: {ex.Message}");
-                throw;
+                LogManager.Log($"保存本地化项失败: {ex.Message}");
             }
         }
+
+        private void ProcessFileForSaving(string filePath, List<LocalizationItem> items)
+        {
+            if (!File.Exists(filePath)) return;
+
+            try
+            {
+                string[] lines = File.ReadAllLines(filePath);
+                List<string> newLines = new List<string>();
+
+                foreach (string line in lines)
+                {
+                    string modifiedLine = line;
+                    foreach (var item in items)
+                    {
+                        // 替换参数文本
+                        if (line.Contains($"{item.Key} = "))
+                        {
+                            modifiedLine = $"{item.Key} = {item.LocalizedText}";
+                            break;
+                        }
+                        // 替换硬编码文本
+                        else if (_searchingHardcoded && line.Contains(item.OriginalText) &&
+                                 !line.Contains("LOC_") && !line.StartsWith("//"))
+                        {
+                            modifiedLine = line.Replace(item.OriginalText, item.Key);
+                            break;
+                        }
+                    }
+                    newLines.Add(modifiedLine);
+                }
+
+                File.WriteAllLines(filePath, newLines);
+                LogManager.Log($"已更新文件: {filePath}");
+            }
+            catch (Exception ex)
+            {
+                LogManager.Log($"更新文件 {filePath} 失败: {ex.Message}");
+            }
+        }
+
+        // 用于在MainForm中访问搜索状态的辅助属性
+        internal bool _searchingHardcoded { get; set; }
     }
 }

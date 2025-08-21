@@ -8,6 +8,50 @@ namespace KSPLocalizationTool.Services
     {
         private string _backupDirectory;
 
+        /// <summary>
+        /// 获取所有备份目录（按时间戳倒序）
+        /// </summary>
+        public List<string> GetBackupDirectories()
+        {
+            if (!Directory.Exists(_backupDirectory))
+                return new List<string>();
+
+            return Directory.EnumerateDirectories(_backupDirectory)
+                .OrderByDescending(d => d)
+                .ToList();
+        }
+
+        /// <summary>
+        /// 还原指定备份
+        /// </summary>
+        public void RestoreBackup(string backupDir)
+        {
+            if (!Directory.Exists(backupDir))
+                throw new DirectoryNotFoundException($"备份目录不存在: {backupDir}");
+
+            // 遍历备份目录中的所有文件，还原到原始路径
+            foreach (string backupFile in Directory.EnumerateFiles(backupDir, "*.*", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    // 计算原始文件路径（移除备份目录前缀）
+                    string relativePath = Path.GetRelativePath(backupDir, backupFile);
+                    string originalPath = Path.Combine(Path.GetPathRoot(relativePath) ?? "",
+                                                      Path.GetRelativePath(Path.GetPathRoot(relativePath) ?? "", relativePath));
+
+                    // 创建原始目录（如果不存在）
+                    Directory.CreateDirectory(Path.GetDirectoryName(originalPath));
+
+                    // 还原文件（覆盖现有文件）
+                    File.Copy(backupFile, originalPath, true);
+                    LogManager.Log($"已还原文件: {originalPath}");
+                }
+                catch (Exception ex)
+                {
+                    LogManager.Log($"还原文件 {backupFile} 失败: {ex.Message}");
+                }
+            }
+        }
         public BackupManager(string backupDirectory)
         {
             _backupDirectory = backupDirectory;

@@ -46,42 +46,402 @@ namespace KSPLocalizationTool
         private readonly TextBox txtLog = new TextBox();
         private readonly StatusStrip statusStrip1 = new StatusStrip();
         private readonly ToolStripStatusLabel toolStripStatusLabel = new ToolStripStatusLabel();
-        // 新增的字段
         private HardcodedSearchService? _hardcodedSearchService;
         private LocalizationGeneratorService? _localizationGenerator;
         private readonly List<LocalizationItem> _hardcodedItems = new List<LocalizationItem>();
         private bool _searchingParameters = false;
         private bool _searchingHardcoded = false;
 
+        // 备份管理相关控件
+        private readonly Label label5 = new Label();
+        private readonly ComboBox cboBackups = new ComboBox();
+        private readonly Button btnRefreshBackups = new Button();
+        private readonly Button btnRestoreBackup = new Button();
+        private readonly Label backupStatusLabel = new Label();
+
+        // 日志页面新增清空按钮
+        private readonly Button btnClearLog = new Button();
+
+        // 搜索选项
+        private readonly CheckBox chkSearchParameters = new CheckBox();
+        private readonly CheckBox chkSearchHardcoded = new CheckBox();
+
         public MainForm()
         {
             InitializeComponent();
             SetupDataGridView();
             InitializeServices();
+            LoadSettings();
+            UpdateLogDisplay();
+
+            // 设置最小窗口尺寸，确保所有控件能正常显示
+            MinimumSize = new Size(1024, 768);
+            // 监听窗口大小变化，动态调整控件
+            Resize += MainForm_Resize;
+
+            // 订阅日志更新事件
+            LogManager.Logged += OnLogUpdated;
         }
 
-        // 初始化数据网格视图
+        // 日志更新事件处理
+        private void OnLogUpdated(string message)
+        {
+            if (txtLog.InvokeRequired)
+            {
+                txtLog.Invoke(new Action<string>(OnLogUpdated), message);
+            }
+            else
+            {
+                UpdateLogDisplay();
+            }
+        }
+
+        // 窗口大小变化时调整控件布局
+        private void MainForm_Resize(object? sender, EventArgs e)
+        {
+            AdjustResultPageLayout();
+            AdjustSettingsPageLayout();
+        }
+
+        // 调整结果页面布局
+        private void AdjustResultPageLayout()
+        {
+            if (tabPageResults.ClientSize.Height <= 0) return;
+
+            // 底部控件区域高度（按钮+进度条+间距）
+            const int bottomAreaHeight = 70;
+            var availableHeight = tabPageResults.ClientSize.Height - bottomAreaHeight;
+
+            // 调整数据网格高度
+            dgvResults.Height = Math.Max(availableHeight, 200); // 确保最小高度
+        }
+
+        // 调整设置页面布局
+        private void AdjustSettingsPageLayout()
+        {
+            if (tabPageSettings.Controls[0] is TableLayoutPanel mainTable)
+            {
+                mainTable.Width = tabPageSettings.ClientSize.Width - 20; // 减去边距
+            }
+        }
+
+        private void InitializeComponent()
+        {
+            // 基础窗体设置
+            Text = "KSP本地化工具";
+            Size = new Size(1280, 800);
+            StartPosition = FormStartPosition.CenterScreen;
+
+            // TabControl设置
+            tabControl1.Dock = DockStyle.Fill;
+            tabControl1.TabPages.Add(tabPageSettings);
+            tabControl1.TabPages.Add(tabPageResults);
+            tabControl1.TabPages.Add(tabPageLogs);
+            tabPageSettings.Text = "设置";
+            tabPageResults.Text = "结果";
+            tabPageLogs.Text = "日志";
+
+            // 日志页面设置
+            SetupLogPage();
+
+            // 设置页面控件布局 - 使用TableLayoutPanel彻底解决干涉问题
+            SetupSettingsPageLayout();
+
+            // 结果页面控件
+            SetupResultsPage();
+
+            // 状态栏
+            toolStripStatusLabel.Text = "就绪";
+            statusStrip1.Items.Add(toolStripStatusLabel);
+
+            // 添加主控件
+            Controls.Add(tabControl1);
+            Controls.Add(statusStrip1);
+        }
+
+        private void SetupLogPage()
+        {
+            // 日志页面使用面板布局
+            var logPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(5) };
+
+            // 清空日志按钮
+            btnClearLog.Text = "清空日志";
+            btnClearLog.Dock = DockStyle.Top;
+            btnClearLog.Height = 30;
+            btnClearLog.Margin = new Padding(0, 0, 0, 5);
+            btnClearLog.Click += (s, e) => txtLog.Clear();
+
+            // 日志文本框
+            txtLog.Dock = DockStyle.Fill;
+            txtLog.Multiline = true;
+            txtLog.ReadOnly = true;
+            txtLog.ScrollBars = ScrollBars.Vertical;
+            txtLog.Font = new Font("Consolas", 9f);
+            txtLog.Margin = new Padding(0, 5, 0, 0);
+
+            logPanel.Controls.Add(txtLog);
+            logPanel.Controls.Add(btnClearLog);
+            tabPageLogs.Controls.Add(logPanel);
+        }
+
+        private void SetupResultsPage()
+        {
+            tabPageResults.Padding = new Padding(10);
+
+            // 底部控制面板使用TableLayoutPanel避免重叠
+            var bottomTable = new TableLayoutPanel
+            {
+                Dock = DockStyle.Bottom,
+                RowCount = 2,
+                Height = 60,
+                Padding = new Padding(5)
+            };
+            bottomTable.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
+            bottomTable.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
+
+            btnReplaceAll.Text = "替换所有";
+            btnReplaceAll.Dock = DockStyle.Fill;
+            btnReplaceAll.Margin = new Padding(0, 0, 0, 5);
+            btnReplaceAll.Click += BtnReplaceAll_Click;
+            btnReplaceAll.Enabled = false;
+
+            progressBar.Dock = DockStyle.Fill;
+            progressBar.Margin = new Padding(0, 5, 0, 0);
+            progressBar.Value = 0;
+
+            bottomTable.Controls.Add(btnReplaceAll, 0, 0);
+            bottomTable.Controls.Add(progressBar, 0, 1);
+
+            // 数据网格视图
+            dgvResults.Dock = DockStyle.Fill;
+            dgvResults.Margin = new Padding(0, 0, 0, 10);
+            dgvResults.BorderStyle = BorderStyle.Fixed3D;
+
+            tabPageResults.Controls.Add(dgvResults);
+            tabPageResults.Controls.Add(bottomTable);
+        }
+
+        private void SetupSettingsPageLayout()
+        {
+            // 使用TableLayoutPanel实现精确布局，彻底解决控件干涉
+            var mainTable = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                AutoScroll = true,
+                Padding = new Padding(20),
+                RowCount = 8, // 增加两行用于搜索选项
+                ColumnCount = 1
+            };
+
+            // 设置行样式 - 自动调整高度
+            for (int i = 0; i < mainTable.RowCount; i++)
+            {
+                mainTable.RowStyles.Add(new RowStyle(SizeType.Absolute, 45f));
+            }
+            // 最后一行用于搜索按钮，设置更大高度
+            mainTable.RowStyles[7] = new RowStyle(SizeType.Absolute, 50f);
+
+            // 1. MOD目录行
+            var modDirTable = CreateDirectoryRow("MOD目录:", txtModDir, btnSelectModDir);
+            btnSelectModDir.Text = "浏览...";
+            btnSelectModDir.Click += BtnSelectModDir_Click;
+            mainTable.Controls.Add(modDirTable, 0, 0);
+
+            // 2. 本地化目录行
+            var locDirTable = CreateDirectoryRow("本地化目录:", txtLocalizationDir, btnSelectLocalizationDir);
+            btnSelectLocalizationDir.Text = "浏览...";
+            btnSelectLocalizationDir.Click += BtnSelectLocalizationDir_Click;
+            mainTable.Controls.Add(locDirTable, 0, 1);
+
+            // 3. 备份目录行
+            var backupDirTable = CreateDirectoryRow("备份目录:", txtBackupDir, btnSelectBackupDir);
+            btnSelectBackupDir.Text = "浏览...";
+            btnSelectBackupDir.Click += BtnSelectBackupDir_Click;
+            mainTable.Controls.Add(backupDirTable, 0, 2);
+
+            // 4. 目标语言行
+            var langTable = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 1
+            };
+            langTable.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120f)); // 标签宽度固定
+            langTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f)); // 控件占剩余宽度
+
+            label4.Text = "目标语言:";
+            label4.Dock = DockStyle.Left;
+            label4.TextAlign = ContentAlignment.MiddleLeft;
+            label4.Margin = new Padding(0, 5, 0, 0);
+
+            cboTargetLanguage.Items.AddRange(new[] { "zh-cn", "en-us", "ja-jp", "ko-kr" });
+            cboTargetLanguage.SelectedItem = _targetLanguageCode;
+            cboTargetLanguage.SelectedIndexChanged += CboTargetLanguage_SelectedIndexChanged;
+            cboTargetLanguage.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboTargetLanguage.Dock = DockStyle.Fill;
+            cboTargetLanguage.Margin = new Padding(5);
+            cboTargetLanguage.Height = 25;
+
+            langTable.Controls.Add(label4, 0, 0);
+            langTable.Controls.Add(cboTargetLanguage, 1, 0);
+            mainTable.Controls.Add(langTable, 0, 3);
+
+            // 5. 搜索选项行
+            var searchOptionsTable = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 1
+            };
+            searchOptionsTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+            searchOptionsTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+
+            chkSearchParameters.Text = "搜索参数文本";
+            chkSearchParameters.Checked = true;
+            chkSearchParameters.Dock = DockStyle.Left;
+            chkSearchParameters.Margin = new Padding(5);
+
+            chkSearchHardcoded.Text = "搜索硬编码文本";
+            chkSearchHardcoded.Checked = true;
+            chkSearchHardcoded.Dock = DockStyle.Left;
+            chkSearchHardcoded.Margin = new Padding(5);
+
+            searchOptionsTable.Controls.Add(chkSearchParameters, 0, 0);
+            searchOptionsTable.Controls.Add(chkSearchHardcoded, 1, 0);
+            mainTable.Controls.Add(searchOptionsTable, 0, 4);
+
+            // 6. 空白行（分隔用）
+            var spacerPanel = new Panel { Dock = DockStyle.Fill };
+            mainTable.Controls.Add(spacerPanel, 0, 5);
+
+            // 7. 备份管理行 - 使用4列布局避免干涉
+            var backupTable = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 4,
+                RowCount = 1
+            };
+            backupTable.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120f)); // 标签
+            backupTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f)); // 备份列表
+            backupTable.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100f)); // 还原按钮
+            backupTable.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 60f)); // 刷新按钮
+
+            label5.Text = "备份管理:";
+            label5.Dock = DockStyle.Left;
+            label5.TextAlign = ContentAlignment.MiddleLeft;
+            label5.Margin = new Padding(0, 5, 0, 0);
+
+            cboBackups.Dock = DockStyle.Fill;
+            cboBackups.Margin = new Padding(5);
+            cboBackups.Height = 25;
+
+            btnRestoreBackup.Text = "还原选中";
+            btnRestoreBackup.Dock = DockStyle.Fill;
+            btnRestoreBackup.Margin = new Padding(5);
+            btnRestoreBackup.Height = 25;
+            btnRestoreBackup.Click += BtnRestoreBackup_Click;
+
+            btnRefreshBackups.Text = "刷新";
+            btnRefreshBackups.Dock = DockStyle.Fill;
+            btnRefreshBackups.Margin = new Padding(5);
+            btnRefreshBackups.Height = 25;
+            btnRefreshBackups.Click += BtnRefreshBackups_Click;
+
+            // 添加到面板（按列索引顺序）
+            backupTable.Controls.Add(label5, 0, 0);
+            backupTable.Controls.Add(cboBackups, 1, 0);
+            backupTable.Controls.Add(btnRestoreBackup, 2, 0);
+            backupTable.Controls.Add(btnRefreshBackups, 3, 0);
+            mainTable.Controls.Add(backupTable, 0, 6);
+
+            // 8. 搜索按钮行
+            var buttonPanel = new Panel { Dock = DockStyle.Fill };
+            btnStartSearch.Text = "开始搜索";
+            btnStartSearch.Size = new Size(150, 35);
+            btnStartSearch.Font = new Font(btnStartSearch.Font, FontStyle.Bold);
+            btnStartSearch.Click += BtnStartSearch_Click;
+
+            // 按钮居中显示
+            buttonPanel.Controls.Add(btnStartSearch);
+            btnStartSearch.Location = new Point(
+                (buttonPanel.ClientSize.Width - btnStartSearch.Width) / 2,
+                (buttonPanel.ClientSize.Height - btnStartSearch.Height) / 2
+            );
+            buttonPanel.Resize += (s, e) => {
+                btnStartSearch.Location = new Point(
+                    (buttonPanel.ClientSize.Width - btnStartSearch.Width) / 2,
+                    (buttonPanel.ClientSize.Height - btnStartSearch.Height) / 2
+                );
+            };
+            mainTable.Controls.Add(buttonPanel, 0, 7);
+
+            tabPageSettings.Controls.Add(mainTable);
+        }
+
+        // 创建目录选择行的辅助方法
+        private TableLayoutPanel CreateDirectoryRow(string labelText, TextBox textBox, Button browseButton)
+        {
+            var table = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 3,
+                RowCount = 1
+            };
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120f)); // 标签
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f)); // 文本框
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 75f)); // 按钮
+
+            // 标签
+            var label = new Label
+            {
+                Text = labelText,
+                Dock = DockStyle.Left,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = new Padding(0, 5, 0, 0)
+            };
+
+            // 文本框
+            textBox.Dock = DockStyle.Fill;
+            textBox.Margin = new Padding(5);
+            textBox.Height = 25;
+            textBox.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
+
+            // 按钮
+            browseButton.Dock = DockStyle.Fill;
+            browseButton.Margin = new Padding(5);
+            browseButton.Height = 25;
+
+            // 添加控件（按列顺序）
+            table.Controls.Add(label, 0, 0);
+            table.Controls.Add(textBox, 1, 0);
+            table.Controls.Add(browseButton, 2, 0);
+
+            return table;
+        }
+
         private void SetupDataGridView()
         {
             dgvResults.AutoGenerateColumns = false;
             dgvResults.AllowUserToAddRows = false;
-            dgvResults.Dock = DockStyle.Top;
             dgvResults.ReadOnly = false;
             dgvResults.RowHeadersVisible = false;
             dgvResults.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             dgvResults.CellEndEdit += DgvResults_CellEndEdit;
+            dgvResults.RowTemplate.Height = 25;
+            dgvResults.BorderStyle = BorderStyle.Fixed3D;
+            dgvResults.ScrollBars = ScrollBars.Both;
 
-            // 设置列
-            DataGridViewTextBoxColumn keyColumn = new DataGridViewTextBoxColumn
+            // 调整列宽比例，避免过宽或过窄
+            var keyColumn = new DataGridViewTextBoxColumn
             {
                 Name = "Key",
                 HeaderText = "本地化键",
                 DataPropertyName = "Key",
                 ReadOnly = true,
-                FillWeight = 25
+                FillWeight = 20
             };
 
-            DataGridViewTextBoxColumn originalColumn = new DataGridViewTextBoxColumn
+            var originalColumn = new DataGridViewTextBoxColumn
             {
                 Name = "OriginalText",
                 HeaderText = "原始文本",
@@ -90,7 +450,7 @@ namespace KSPLocalizationTool
                 FillWeight = 30
             };
 
-            DataGridViewTextBoxColumn localizedColumn = new DataGridViewTextBoxColumn
+            var localizedColumn = new DataGridViewTextBoxColumn
             {
                 Name = "LocalizedText",
                 HeaderText = "本地化文本",
@@ -98,28 +458,27 @@ namespace KSPLocalizationTool
                 FillWeight = 30
             };
 
-            DataGridViewTextBoxColumn fileColumn = new DataGridViewTextBoxColumn
+            var fileColumn = new DataGridViewTextBoxColumn
             {
                 Name = "FilePath",
                 HeaderText = "文件路径",
                 DataPropertyName = "FilePath",
                 ReadOnly = true,
-                FillWeight = 15
+                FillWeight = 20
             };
 
             dgvResults.Columns.AddRange(keyColumn, originalColumn, localizedColumn, fileColumn);
 
-            // 添加上下文菜单，区分参数和硬编码结果
-            ContextMenuStrip contextMenu = new ContextMenuStrip();
-            ToolStripMenuItem parameterSearchItem = new ToolStripMenuItem("搜索参数文本");
+            // 添加上下文菜单
+            var contextMenu = new ContextMenuStrip();
+            var parameterSearchItem = new ToolStripMenuItem("搜索参数文本");
             parameterSearchItem.Click += (_, _) => StartParameterSearch();
-            ToolStripMenuItem hardcodedSearchItem = new ToolStripMenuItem("搜索硬编码文本");
+            var hardcodedSearchItem = new ToolStripMenuItem("搜索硬编码文本");
             hardcodedSearchItem.Click += (_, _) => StartHardcodedSearch();
             contextMenu.Items.AddRange(new ToolStripItem[] { parameterSearchItem, hardcodedSearchItem });
             dgvResults.ContextMenuStrip = contextMenu;
         }
 
-        // 初始化所有服务
         private void InitializeServices()
         {
             try
@@ -128,7 +487,6 @@ namespace KSPLocalizationTool
                 string locDir = txtLocalizationDir.Text;
                 string backupDir = txtBackupDir.Text;
 
-                // 初始化备份目录（默认为MOD目录下的Backup文件夹）
                 if (string.IsNullOrEmpty(backupDir) && !string.IsNullOrEmpty(modDir))
                 {
                     backupDir = Path.Combine(modDir, "Backup");
@@ -158,7 +516,6 @@ namespace KSPLocalizationTool
             }
         }
 
-        // 更新所有服务
         private void UpdateServices()
         {
             try
@@ -178,672 +535,368 @@ namespace KSPLocalizationTool
                 }
 
                 // 更新搜索服务
-                if (_searchService != null)
+                if (!string.IsNullOrEmpty(modDir))
                 {
-                    _searchService.UpdateSearchDirectory(modDir);
-                }
-                else if (!string.IsNullOrEmpty(modDir))
-                {
-                    _searchService = new SearchService(modDir);
-                }
+                    if (_searchService != null)
+                    {
+                        _searchService.UpdateSearchDirectory(modDir);
+                    }
+                    else
+                    {
+                        _searchService = new SearchService(modDir);
+                    }
 
-                // 更新硬编码搜索服务
-                if (_hardcodedSearchService != null)
-                {
-                    _hardcodedSearchService.UpdateSearchDirectory(modDir);
-                }
-                else if (!string.IsNullOrEmpty(modDir))
-                {
-                    _hardcodedSearchService = new HardcodedSearchService(modDir);
+                    if (_hardcodedSearchService != null)
+                    {
+                        _hardcodedSearchService.UpdateSearchDirectory(modDir);
+                    }
+                    else
+                    {
+                        _hardcodedSearchService = new HardcodedSearchService(modDir);
+                    }
                 }
 
                 // 更新本地化处理器
-                if (_localizationHandler != null)
+                if (!string.IsNullOrEmpty(locDir))
                 {
-                    _localizationHandler.UpdateDirectory(locDir);
-                    _localizationHandler.SetTargetLanguage(_targetLanguageCode);
-                }
-                else if (!string.IsNullOrEmpty(locDir))
-                {
-                    _localizationHandler = new LocalizationFileHandler(_targetLanguageCode, locDir);
-                }
+                    if (_localizationHandler != null)
+                    {
+                        _localizationHandler.UpdateDirectory(locDir);
+                        _localizationHandler.SetTargetLanguage(_targetLanguageCode);
+                    }
+                    else
+                    {
+                        _localizationHandler = new LocalizationFileHandler(_targetLanguageCode, locDir);
+                    }
 
-                // 更新本地化生成器
-                if (_localizationGenerator != null)
-                {
-                    _localizationGenerator.UpdateSettings(locDir, _targetLanguageCode);
-                }
-                else if (!string.IsNullOrEmpty(locDir))
-                {
-                    _localizationGenerator = new LocalizationGeneratorService(locDir, _targetLanguageCode);
+                    if (_localizationGenerator != null)
+                    {
+                        _localizationGenerator.UpdateSettings(locDir, _targetLanguageCode);
+                    }
+                    else
+                    {
+                        _localizationGenerator = new LocalizationGeneratorService(locDir, _targetLanguageCode);
+                    }
                 }
 
                 // 更新替换服务
-                if (_localizationHandler != null && _backupManager != null)
+                if (_localizationHandler != null && _backupManager != null && _replacementService == null)
                 {
-                    if (_replacementService == null)
-                    {
-                        _replacementService = new ReplacementService(_localizationHandler, _backupManager);
-                        _replacementService.ProgressUpdated += ProgressUpdated;
-                        _replacementService.ReplacementCompleted += ReplacementCompleted;
-                    }
-                }
-                else
-                {
-                    _replacementService = null;
+                    _replacementService = new ReplacementService(_localizationHandler, _backupManager);
+                    _replacementService.ProgressUpdated += ProgressUpdated;
+                    _replacementService.ReplacementCompleted += ReplacementCompleted;
                 }
 
                 LogManager.Log("服务已更新");
             }
             catch (Exception ex)
             {
-                LogManager.Log($"更新服务失败: {ex.Message}");
+                LogManager.Log($"服务更新失败: {ex.Message}");
             }
         }
 
-        // 开始参数搜索
-        private void StartParameterSearch()
+        private void LoadSettings()
         {
-            // 实现参数搜索逻辑
-            if (string.IsNullOrEmpty(txtModDir.Text) || !Directory.Exists(txtModDir.Text))
-            {
-                MessageBox.Show("请选择有效的MOD目录", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
             try
             {
-                toolStripStatusLabel.Text = "正在搜索参数文本...";
-                btnStartSearch.Enabled = false;
-                btnReplaceAll.Enabled = false;
-                _searchingParameters = true;
-                _searchingHardcoded = false;
+                // 尝试从配置文件加载设置
+                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                string configPath = Path.Combine(appData, "KSPLocalizationTool", "config.txt");
 
-                Task.Run(() =>
+                if (File.Exists(configPath))
                 {
+                    var lines = File.ReadAllLines(configPath);
+                    foreach (var line in lines)
+                    {
+                        if (line.StartsWith("ModDir="))
+                        {
+                            txtModDir.Text = line.Substring(7);
+                        }
+                        else if (line.StartsWith("LocalizationDir="))
+                        {
+                            txtLocalizationDir.Text = line.Substring(16);
+                        }
+                        else if (line.StartsWith("BackupDir="))
+                        {
+                            txtBackupDir.Text = line.Substring(10);
+                        }
+                        else if (line.StartsWith("TargetLanguage="))
+                        {
+                            _targetLanguageCode = line.Substring(15);
+                        }
+                    }
+                }
+
+                // 刷新备份列表
+                RefreshBackupList();
+            }
+            catch (Exception ex)
+            {
+                LogManager.Log($"加载设置失败: {ex.Message}");
+            }
+        }
+
+        private void SaveSettings()
+        {
+            try
+            {
+                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                string configDir = Path.Combine(appData, "KSPLocalizationTool");
+                Directory.CreateDirectory(configDir);
+                string configPath = Path.Combine(configDir, "config.txt");
+
+                var lines = new List<string>
+                {
+                    $"ModDir={txtModDir.Text}",
+                    $"LocalizationDir={txtLocalizationDir.Text}",
+                    $"BackupDir={txtBackupDir.Text}",
+                    $"TargetLanguage={_targetLanguageCode}"
+                };
+
+                File.WriteAllLines(configPath, lines);
+                LogManager.Log("设置已保存");
+            }
+            catch (Exception ex)
+            {
+                LogManager.Log($"保存设置失败: {ex.Message}");
+            }
+        }
+
+        private void BtnSelectModDir_Click(object sender, EventArgs e)
+        {
+            using (var fbd = new FolderBrowserDialog())
+            {
+                if (!string.IsNullOrEmpty(txtModDir.Text) && Directory.Exists(txtModDir.Text))
+                {
+                    fbd.SelectedPath = txtModDir.Text;
+                }
+
+                if (fbd.ShowDialog() == DialogResult.OK)
+                {
+                    txtModDir.Text = fbd.SelectedPath;
                     UpdateServices();
-                    var results = _searchService?.SearchLocalizationItems() ?? new List<LocalizationItem>();
-
-                    Invoke(new Action(() =>
-                    {
-                        _foundItems.Clear();
-                        _foundItems.AddRange(results);
-                        dgvResults.DataSource = _foundItems.ToList();
-                        toolStripStatusLabel.Text = $"找到 {results.Count} 个参数项";
-                        btnStartSearch.Enabled = true;
-                        btnReplaceAll.Enabled = results.Count > 0;
-                    }));
-                });
-            }
-            catch (Exception ex)
-            {
-                LogManager.Log($"参数搜索失败: {ex.Message}");
-                toolStripStatusLabel.Text = "搜索失败";
-                btnStartSearch.Enabled = true;
+                    SaveSettings();
+                }
             }
         }
 
-        // 开始硬编码搜索
-        private void StartHardcodedSearch()
+        private void BtnSelectLocalizationDir_Click(object sender, EventArgs e)
         {
-            // 实现硬编码搜索逻辑
-            if (string.IsNullOrEmpty(txtModDir.Text) || !Directory.Exists(txtModDir.Text))
+            using (var fbd = new FolderBrowserDialog())
             {
-                MessageBox.Show("请选择有效的MOD目录", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            try
-            {
-                toolStripStatusLabel.Text = "正在搜索硬编码文本...";
-                btnStartSearch.Enabled = false;
-                btnReplaceAll.Enabled = false;
-                _searchingParameters = false;
-                _searchingHardcoded = true;
-
-                Task.Run(() =>
+                if (!string.IsNullOrEmpty(txtLocalizationDir.Text) && Directory.Exists(txtLocalizationDir.Text))
                 {
+                    fbd.SelectedPath = txtLocalizationDir.Text;
+                }
+                else if (!string.IsNullOrEmpty(txtModDir.Text) && Directory.Exists(txtModDir.Text))
+                {
+                    fbd.SelectedPath = txtModDir.Text;
+                }
+
+                if (fbd.ShowDialog() == DialogResult.OK)
+                {
+                    txtLocalizationDir.Text = fbd.SelectedPath;
                     UpdateServices();
-                    var results = _hardcodedSearchService?.SearchHardcodedItems(txtLocalizationDir.Text) ?? new List<LocalizationItem>();
-
-                    // 为硬编码文本生成本地化键
-                    foreach (var item in results)
-                    {
-                        if (string.IsNullOrEmpty(item.Key))
-                        {
-                            item.Key = LocalizationKeyGenerator.GenerateKey(
-                                item.OriginalText,
-                                "HARDCODED",
-                                item.FilePath);
-                        }
-                    }
-
-                    Invoke(new Action(() =>
-                    {
-                        _hardcodedItems.Clear();
-                        _hardcodedItems.AddRange(results);
-                        _foundItems.Clear();
-                        _foundItems.AddRange(results);
-                        dgvResults.DataSource = _foundItems.ToList();
-                        toolStripStatusLabel.Text = $"找到 {results.Count} 个硬编码项";
-                        btnStartSearch.Enabled = true;
-                        btnReplaceAll.Enabled = results.Count > 0;
-                    }));
-                });
-            }
-            catch (Exception ex)
-            {
-                LogManager.Log($"硬编码搜索失败: {ex.Message}");
-                toolStripStatusLabel.Text = "搜索失败";
-                btnStartSearch.Enabled = true;
-            }
-        }
-
-        // 替换所有项
-        private void BtnReplaceAll_Click(object? sender, EventArgs e)
-        {
-            var itemsToReplace = _foundItems.Where(i => !string.IsNullOrEmpty(i.LocalizedText)).ToList();
-
-            if (itemsToReplace.Count == 0)
-            {
-                MessageBox.Show("没有可替换的本地化项，请先填写本地化文本", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
-
-            var confirmResult = MessageBox.Show(
-                $"确定要替换所有 {itemsToReplace.Count} 项本地化内容吗？\n这将修改源文件并创建备份。",
-                "确认替换",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Warning);
-
-            if (confirmResult != DialogResult.Yes)
-                return;
-
-            try
-            {
-                toolStripStatusLabel.Text = "正在执行替换...";
-                progressBar.Value = 0;
-                btnReplaceAll.Enabled = false;
-                btnStartSearch.Enabled = false;
-
-                // 生成或更新本地化文件
-                if (_localizationGenerator != null)
-                {
-                    _localizationGenerator.GenerateOrUpdateLocalizationFiles(itemsToReplace);
-                }
-
-                // 在后台线程执行替换
-                Task.Run(() =>
-                {
-                    if (_searchingParameters)
-                    {
-                        ReplaceParameterItems(itemsToReplace);
-                    }
-                    else if (_searchingHardcoded)
-                    {
-                        ReplaceHardcodedItems(itemsToReplace);
-                    }
-
-                    // 替换完成后更新UI
-                    Invoke(new Action(() =>
-                    {
-                        toolStripStatusLabel.Text = "替换完成";
-                        progressBar.Value = 100;
-                        btnReplaceAll.Enabled = true;
-                        btnStartSearch.Enabled = true;
-
-                        MessageBox.Show($"成功替换 {itemsToReplace.Count} 项本地化内容",
-                            "完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    }));
-                });
-            }
-            catch (Exception ex)
-            {
-                LogManager.Log($"替换失败: {ex.Message}");
-                MessageBox.Show($"替换时出错: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                toolStripStatusLabel.Text = "替换失败";
-                btnReplaceAll.Enabled = true;
-                btnStartSearch.Enabled = true;
-            }
-        }
-
-        // 替换参数项
-        private void ReplaceParameterItems(List<LocalizationItem> items)
-        {
-            // 备份所有相关文件
-            var filesToBackup = items.Select(i => i.FilePath).Distinct().ToList();
-            if (_backupManager != null)
-            {
-                _backupManager.BackupFiles(filesToBackup);
-            }
-
-            foreach (var item in items)
-            {
-                try
-                {
-                    if (File.Exists(item.FilePath))
-                    {
-                        string[] lines = File.ReadAllLines(item.FilePath);
-                        bool fileModified = false;
-
-                        for (int i = 0; i < lines.Length; i++)
-                        {
-                            // 查找包含原始文本的行
-                            if (lines[i].Contains(item.OriginalText) &&
-                                GetParameterList().Any(p => lines[i].Contains(p)))
-                            {
-                                // 创建原始代码的注释
-                                string originalLine = lines[i];
-                                // 替换为本地化键
-                                string paramName = GetParameterList().First(p => lines[i].Contains(p));
-                                lines[i] = $"{paramName} = {item.Key}";
-                                // 在下方添加原始代码作为注释
-                                lines[i] += $"\n// 原始代码: {originalLine}";
-
-                                fileModified = true;
-                                LogManager.Log($"已替换文件 {Path.GetFileName(item.FilePath)} 中的项: {item.Key}");
-                            }
-                        }
-
-                        if (fileModified)
-                        {
-                            File.WriteAllLines(item.FilePath, lines);
-                        }
-                    }
-
-                    // 更新进度
-                    int progress = (int)(((double)items.IndexOf(item) / items.Count) * 100);
-                    ProgressUpdated(progress);
-                }
-                catch (Exception ex)
-                {
-                    LogManager.Log($"替换项 {item.Key} 失败: {ex.Message}");
+                    SaveSettings();
                 }
             }
         }
 
-        // 替换硬编码项
-        private void ReplaceHardcodedItems(List<LocalizationItem> items)
+        private void BtnSelectBackupDir_Click(object sender, EventArgs e)
         {
-            // 备份所有相关文件
-            var filesToBackup = items.Select(i => i.FilePath).Distinct().ToList();
-            if (_backupManager != null)
+            using (var fbd = new FolderBrowserDialog())
             {
-                _backupManager.BackupFiles(filesToBackup);
-            }
-
-            foreach (var item in items)
-            {
-                try
+                if (!string.IsNullOrEmpty(txtBackupDir.Text) && Directory.Exists(txtBackupDir.Text))
                 {
-                    if (File.Exists(item.FilePath))
-                    {
-                        string[] lines = File.ReadAllLines(item.FilePath);
-                        bool fileModified = false;
-
-                        for (int i = 0; i < lines.Length; i++)
-                        {
-                            // 查找包含原始文本的行
-                            if (lines[i].Contains(item.OriginalText) &&
-                                GetHardcodedParameterList().Any(p => lines[i].Contains(p)))
-                            {
-                                // 创建原始代码的注释
-                                string originalLine = lines[i];
-                                // 替换为本地化键
-                                lines[i] = lines[i].Replace($"\"{item.OriginalText}\"", $"\"{item.Key}\"")
-                                                  .Replace($"'{item.OriginalText}'", $"'{item.Key}'");
-                                // 在下方添加原始代码作为注释
-                                lines[i] += $"\n// 原始代码: {originalLine}";
-
-                                fileModified = true;
-                                LogManager.Log($"已替换文件 {Path.GetFileName(item.FilePath)} 中的硬编码项: {item.Key}");
-                            }
-                        }
-
-                        if (fileModified)
-                        {
-                            File.WriteAllLines(item.FilePath, lines);
-                        }
-                    }
-
-                    // 更新进度
-                    int progress = (int)(((double)items.IndexOf(item) / items.Count) * 100);
-                    ProgressUpdated(progress);
+                    fbd.SelectedPath = txtBackupDir.Text;
                 }
-                catch (Exception ex)
+                else if (!string.IsNullOrEmpty(txtModDir.Text) && Directory.Exists(txtModDir.Text))
                 {
-                    LogManager.Log($"替换硬编码项 {item.Key} 失败: {ex.Message}");
+                    fbd.SelectedPath = txtModDir.Text;
+                }
+
+                if (fbd.ShowDialog() == DialogResult.OK)
+                {
+                    txtBackupDir.Text = fbd.SelectedPath;
+                    UpdateServices();
+                    SaveSettings();
                 }
             }
         }
 
-        #region 初始化方法
-        private void InitializeComponent()
-        {
-            // 初始化组件容器
-            components = new Container();
-
-            // 配置主窗体
-            SuspendLayout();
-            Size = new Size(800, 600);
-            Text = "KSP本地化工具";
-            Name = "MainForm";
-
-            // 配置tabControl1
-            tabControl1.Dock = DockStyle.Fill;
-            tabControl1.Location = new Point(0, 0);
-            tabControl1.Name = "tabControl1";
-            tabControl1.SelectedIndex = 0;
-            tabControl1.Size = new Size(800, 578);
-            tabControl1.TabIndex = 0;
-            tabControl1.TabPages.AddRange(new TabPage[] { tabPageSettings, tabPageResults, tabPageLogs });
-
-            // 配置tabPageSettings
-            tabPageSettings.Controls.Add(label1);
-            tabPageSettings.Controls.Add(txtModDir);
-            tabPageSettings.Controls.Add(btnSelectModDir);
-            tabPageSettings.Controls.Add(label3);
-            tabPageSettings.Controls.Add(txtLocalizationDir);
-            tabPageSettings.Controls.Add(btnSelectLocalizationDir);
-            tabPageSettings.Controls.Add(label2);
-            tabPageSettings.Controls.Add(txtBackupDir);
-            tabPageSettings.Controls.Add(btnSelectBackupDir);
-            tabPageSettings.Controls.Add(label4);
-            tabPageSettings.Controls.Add(cboTargetLanguage);
-            tabPageSettings.Controls.Add(btnStartSearch);
-            tabPageSettings.Location = new Point(4, 24);
-            tabPageSettings.Name = "tabPageSettings";
-            tabPageSettings.Padding = new Padding(3);
-            tabPageSettings.Size = new Size(792, 550);
-            tabPageSettings.TabIndex = 0;
-            tabPageSettings.Text = "设置";
-            tabPageSettings.UseVisualStyleBackColor = true;
-
-            // 配置label1
-            label1.AutoSize = true;
-            label1.Location = new Point(15, 20);
-            label1.Name = "label1";
-            label1.Size = new Size(53, 12);
-            label1.TabIndex = 0;
-            label1.Text = "MOD目录";
-
-            // 配置txtModDir
-            txtModDir.Location = new Point(15, 35);
-            txtModDir.Name = "txtModDir";
-            txtModDir.Size = new Size(600, 21);
-            txtModDir.TabIndex = 1;
-
-            // 配置btnSelectModDir
-            btnSelectModDir.Location = new Point(620, 35);
-            btnSelectModDir.Name = "btnSelectModDir";
-            btnSelectModDir.Size = new Size(75, 23);
-            btnSelectModDir.TabIndex = 2;
-            btnSelectModDir.Text = "浏览...";
-            btnSelectModDir.UseVisualStyleBackColor = true;
-            btnSelectModDir.Click += BtnSelectModDir_Click;
-
-            // 配置label3
-            label3.AutoSize = true;
-            label3.Location = new Point(15, 70);
-            label3.Name = "label3";
-            label3.Size = new Size(77, 12);
-            label3.TabIndex = 3;
-            label3.Text = "本地化文件目录";
-
-            // 配置txtLocalizationDir
-            txtLocalizationDir.Location = new Point(15, 85);
-            txtLocalizationDir.Name = "txtLocalizationDir";
-            txtLocalizationDir.Size = new Size(600, 21);
-            txtLocalizationDir.TabIndex = 4;
-
-            // 配置btnSelectLocalizationDir
-            btnSelectLocalizationDir.Location = new Point(620, 85);
-            btnSelectLocalizationDir.Name = "btnSelectLocalizationDir";
-            btnSelectLocalizationDir.Size = new Size(75, 23);
-            btnSelectLocalizationDir.TabIndex = 5;
-            btnSelectLocalizationDir.Text = "浏览...";
-            btnSelectLocalizationDir.UseVisualStyleBackColor = true;
-            btnSelectLocalizationDir.Click += BtnSelectLocalizationDir_Click;
-
-            // 配置label2
-            label2.AutoSize = true;
-            label2.Location = new Point(15, 120);
-            label2.Name = "label2";
-            label2.Size = new Size(53, 12);
-            label2.TabIndex = 6;
-            label2.Text = "备份目录";
-
-            // 配置txtBackupDir
-            txtBackupDir.Location = new Point(15, 135);
-            txtBackupDir.Name = "txtBackupDir";
-            txtBackupDir.Size = new Size(600, 21);
-            txtBackupDir.TabIndex = 7;
-
-            // 配置btnSelectBackupDir
-            btnSelectBackupDir.Location = new Point(620, 135);
-            btnSelectBackupDir.Name = "btnSelectBackupDir";
-            btnSelectBackupDir.Size = new Size(75, 23);
-            btnSelectBackupDir.TabIndex = 8;
-            btnSelectBackupDir.Text = "浏览...";
-            btnSelectBackupDir.UseVisualStyleBackColor = true;
-            btnSelectBackupDir.Click += BtnSelectBackupDir_Click;
-
-            // 配置label4
-            label4.AutoSize = true;
-            label4.Location = new Point(15, 170);
-            label4.Name = "label4";
-            label4.Size = new Size(53, 12);
-            label4.TabIndex = 9;
-            label4.Text = "目标语言";
-
-            // 配置cboTargetLanguage
-            cboTargetLanguage.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboTargetLanguage.FormattingEnabled = true;
-            cboTargetLanguage.Items.AddRange(new object[] { "zh-cn", "en-us", "ja", "ko", "fr", "de" });
-            cboTargetLanguage.Location = new Point(15, 185);
-            cboTargetLanguage.Name = "cboTargetLanguage";
-            cboTargetLanguage.Size = new Size(121, 20);
-            cboTargetLanguage.TabIndex = 10;
-            cboTargetLanguage.SelectedIndex = 0;
-            cboTargetLanguage.SelectedIndexChanged += CboTargetLanguage_SelectedIndexChanged;
-
-            // 配置btnStartSearch
-            btnStartSearch.Location = new Point(15, 220);
-            btnStartSearch.Name = "btnStartSearch";
-            btnStartSearch.Size = new Size(121, 30);
-            btnStartSearch.TabIndex = 11;
-            btnStartSearch.Text = "开始搜索";
-            btnStartSearch.UseVisualStyleBackColor = true;
-            btnStartSearch.Click += BtnStartSearch_Click;
-
-            // 配置tabPageResults
-            tabPageResults.Controls.Add(progressBar);
-            tabPageResults.Controls.Add(btnReplaceAll);
-            tabPageResults.Controls.Add(dgvResults);
-            tabPageResults.Location = new Point(4, 24);
-            tabPageResults.Name = "tabPageResults";
-            tabPageResults.Padding = new Padding(3);
-            tabPageResults.Size = new Size(792, 550);
-            tabPageResults.TabIndex = 1;
-            tabPageResults.Text = "结果";
-            tabPageResults.UseVisualStyleBackColor = true;
-
-            // 配置dgvResults
-            dgvResults.Location = new Point(3, 3);
-            dgvResults.Name = "dgvResults";
-            dgvResults.Size = new Size(786, 480);
-            dgvResults.TabIndex = 0;
-
-            // 配置btnReplaceAll
-            btnReplaceAll.Location = new Point(3, 489);
-            btnReplaceAll.Name = "btnReplaceAll";
-            btnReplaceAll.Size = new Size(121, 30);
-            btnReplaceAll.TabIndex = 1;
-            btnReplaceAll.Text = "全部替换";
-            btnReplaceAll.UseVisualStyleBackColor = true;
-            btnReplaceAll.Click += BtnReplaceAll_Click;
-            btnReplaceAll.Enabled = false;
-
-            // 配置progressBar
-            progressBar.Dock = DockStyle.Bottom;
-            progressBar.Location = new Point(3, 525);
-            progressBar.Name = "progressBar";
-            progressBar.Size = new Size(786, 22);
-            progressBar.TabIndex = 2;
-
-            // 配置tabPageLogs
-            tabPageLogs.Controls.Add(txtLog);
-            tabPageLogs.Location = new Point(4, 24);
-            tabPageLogs.Name = "tabPageLogs";
-            tabPageLogs.Padding = new Padding(3);
-            tabPageLogs.Size = new Size(792, 550);
-            tabPageLogs.TabIndex = 2;
-            tabPageLogs.Text = "日志";
-            tabPageLogs.UseVisualStyleBackColor = true;
-
-            // 配置txtLog
-            txtLog.Dock = DockStyle.Fill;
-            txtLog.Multiline = true;
-            txtLog.Name = "txtLog";
-            txtLog.ReadOnly = true;
-            txtLog.ScrollBars = ScrollBars.Vertical;
-            txtLog.Size = new Size(786, 544);
-            txtLog.TabIndex = 0;
-
-            // 配置statusStrip1
-            statusStrip1.Items.AddRange(new ToolStripItem[] { toolStripStatusLabel });
-            statusStrip1.Location = new Point(0, 578);
-            statusStrip1.Name = "statusStrip1";
-            statusStrip1.Size = new Size(800, 22);
-            statusStrip1.TabIndex = 1;
-            statusStrip1.Text = "statusStrip1";
-
-            // 配置toolStripStatusLabel
-            toolStripStatusLabel.Name = "toolStripStatusLabel";
-            toolStripStatusLabel.Size = new Size(31, 17);
-            toolStripStatusLabel.Text = "就绪";
-
-            // 配置主窗体控件
-            Controls.Add(tabControl1);
-            Controls.Add(statusStrip1);
-
-            // 完成初始化
-            ResumeLayout(false);
-            PerformLayout();
-
-            // 注册日志更新事件
-            LogManager.Log("程序初始化完成");
-            UpdateLogDisplay();
-        }
-        #endregion
-
-        #region 事件处理方法
-        private void BtnSelectModDir_Click(object? sender, EventArgs e)
-        {
-            using var dialog = new FolderBrowserDialog();
-            dialog.Description = "选择MOD目录";
-            if (dialog.ShowDialog() == DialogResult.OK)
-            {
-                txtModDir.Text = dialog.SelectedPath;
-                UpdateServices();
-            }
-        }
-
-        private void BtnSelectLocalizationDir_Click(object? sender, EventArgs e)
-        {
-            using var dialog = new FolderBrowserDialog();
-            dialog.Description = "选择本地化文件目录";
-            if (dialog.ShowDialog() == DialogResult.OK)
-            {
-                txtLocalizationDir.Text = dialog.SelectedPath;
-                UpdateServices();
-            }
-        }
-
-        private void BtnSelectBackupDir_Click(object? sender, EventArgs e)
-        {
-            using var dialog = new FolderBrowserDialog();
-            dialog.Description = "选择备份目录";
-            if (dialog.ShowDialog() == DialogResult.OK)
-            {
-                txtBackupDir.Text = dialog.SelectedPath;
-                UpdateServices();
-            }
-        }
-
-        private void CboTargetLanguage_SelectedIndexChanged(object? sender, EventArgs e)
+        private void CboTargetLanguage_SelectedIndexChanged(object sender, EventArgs e)
         {
             if (cboTargetLanguage.SelectedItem != null)
             {
                 _targetLanguageCode = cboTargetLanguage.SelectedItem.ToString() ?? "zh-cn";
+                _localizationHandler?.SetTargetLanguage(_targetLanguageCode);
+                _localizationGenerator?.UpdateSettings(txtLocalizationDir.Text, _targetLanguageCode);
+                SaveSettings();
+            }
+        }
+
+        private async void BtnStartSearch_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrEmpty(txtModDir.Text) || !Directory.Exists(txtModDir.Text))
+            {
+                MessageBox.Show("请选择有效的MOD目录", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            if (string.IsNullOrEmpty(txtLocalizationDir.Text) || !Directory.Exists(txtLocalizationDir.Text))
+            {
+                MessageBox.Show("请选择有效的本地化目录", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            // 禁用搜索按钮防止重复点击
+            btnStartSearch.Enabled = false;
+            toolStripStatusLabel.Text = "正在搜索...";
+            _foundItems.Clear();
+
+            try
+            {
+                // 更新服务确保使用最新的目录设置
                 UpdateServices();
+
+                // 并行执行搜索操作
+                var searchTasks = new List<Task>();
+
+                // 根据选择的选项执行搜索
+                if (chkSearchParameters.Checked && _searchService != null)
+                {
+                    searchTasks.Add(Task.Run(() =>
+                    {
+                        var parameterItems = _searchService.SearchLocalizationItems();
+                        lock (_foundItems)
+                        {
+                            _foundItems.AddRange(parameterItems);
+                        }
+                    }));
+                }
+
+                if (chkSearchHardcoded.Checked && _hardcodedSearchService != null)
+                {
+                    searchTasks.Add(Task.Run(() =>
+                    {
+                        var hardcodedItems = _hardcodedSearchService.SearchHardcodedItems(txtLocalizationDir.Text);
+                        lock (_foundItems)
+                        {
+                            _hardcodedItems.Clear();
+                            _hardcodedItems.AddRange(hardcodedItems);
+                            _foundItems.AddRange(hardcodedItems);
+                        }
+                    }));
+                }
+
+                // 等待所有搜索任务完成
+                await Task.WhenAll(searchTasks);
+
+                // 生成或更新本地化文件
+                if (_localizationGenerator != null && _foundItems.Count > 0)
+                {
+                    _localizationGenerator.GenerateOrUpdateLocalizationFiles(_foundItems);
+                }
+
+                // 显示结果
+                UpdateResultsGrid();
+
+                toolStripStatusLabel.Text = $"搜索完成，找到 {_foundItems.Count} 项";
+                btnReplaceAll.Enabled = _foundItems.Count > 0;
+            }
+            catch (Exception ex)
+            {
+                LogManager.Log($"搜索过程出错: {ex.Message}");
+                toolStripStatusLabel.Text = "搜索出错";
+            }
+            finally
+            {
+                // 重新启用搜索按钮
+                btnStartSearch.Enabled = true;
+                // 切换到结果标签页
+                tabControl1.SelectedTab = tabPageResults;
             }
         }
 
-        private void BtnStartSearch_Click(object? sender, EventArgs e)
+        private void StartParameterSearch()
         {
-            // 显示搜索选项对话框
-            var result = MessageBox.Show(
-                "请选择搜索类型:\n- 点击确定搜索参数文本\n- 点击取消搜索硬编码文本",
-                "选择搜索类型",
-                MessageBoxButtons.OKCancel,
-                MessageBoxIcon.Question);
-
-            if (result == DialogResult.OK)
+            if (_searchService == null)
             {
-                StartParameterSearch();
-            }
-            else
-            {
-                StartHardcodedSearch();
-            }
-        }
-
-        private void DgvResults_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
-        {
-            // 当用户编辑本地化文本后更新数据
-            if (e.ColumnIndex == dgvResults.Columns["LocalizedText"].Index && e.RowIndex >= 0)
-            {
-                var item = _foundItems[e.RowIndex];
-                item.LocalizedText = dgvResults.Rows[e.RowIndex].Cells[e.ColumnIndex].Value?.ToString() ?? string.Empty;
-            }
-        }
-
-        private void ProgressUpdated(int progress)
-        {
-            if (progressBar.InvokeRequired)
-            {
-                progressBar.Invoke(new Action<int>(ProgressUpdated), progress);
+                MessageBox.Show("请先设置MOD目录", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
-            progressBar.Value = progress;
-            toolStripStatusLabel.Text = $"正在替换... {progress}%";
+            toolStripStatusLabel.Text = "正在搜索参数文本...";
+            btnStartSearch.Enabled = false;
+
+            Task.Run(() =>
+            {
+                var items = _searchService.SearchLocalizationItems();
+
+                Invoke(new Action(() =>
+                {
+                    _foundItems.Clear();
+                    _foundItems.AddRange(items);
+                    UpdateResultsGrid();
+                    toolStripStatusLabel.Text = $"参数文本搜索完成，找到 {items.Count} 项";
+                    btnStartSearch.Enabled = true;
+                    btnReplaceAll.Enabled = _foundItems.Count > 0;
+                    tabControl1.SelectedTab = tabPageResults;
+                }));
+            });
         }
 
-        private void ReplacementCompleted(bool success, string message)
+        private void StartHardcodedSearch()
         {
-            if (InvokeRequired)
+            if (_hardcodedSearchService == null)
             {
-                Invoke(new Action<bool, string>(ReplacementCompleted), success, message);
+                MessageBox.Show("请先设置MOD目录", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
-            if (success)
-            {
-                toolStripStatusLabel.Text = "替换完成";
-                MessageBox.Show("所有本地化项已成功替换", "完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            else
-            {
-                toolStripStatusLabel.Text = "替换失败";
-                MessageBox.Show($"替换过程中出现错误: {message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+            toolStripStatusLabel.Text = "正在搜索硬编码文本...";
+            btnStartSearch.Enabled = false;
 
-            btnReplaceAll.Enabled = true;
-            btnStartSearch.Enabled = true;
+            Task.Run(() =>
+            {
+                var items = _hardcodedSearchService.SearchHardcodedItems(txtLocalizationDir.Text);
+
+                Invoke(new Action(() =>
+                {
+                    _hardcodedItems.Clear();
+                    _hardcodedItems.AddRange(items);
+                    _foundItems.Clear();
+                    _foundItems.AddRange(items);
+
+                    if (_localizationGenerator != null && items.Count > 0)
+                    {
+                        _localizationGenerator.GenerateOrUpdateLocalizationFiles(items);
+                    }
+
+                    UpdateResultsGrid();
+                    toolStripStatusLabel.Text = $"硬编码文本搜索完成，找到 {items.Count} 项";
+                    btnStartSearch.Enabled = true;
+                    btnReplaceAll.Enabled = _foundItems.Count > 0;
+                    tabControl1.SelectedTab = tabPageResults;
+                }));
+            });
         }
 
+        // 更新结果表格
+        private void UpdateResultsGrid()
+        {
+            if (dgvResults.InvokeRequired)
+            {
+                dgvResults.Invoke(new Action(UpdateResultsGrid));
+                return;
+            }
+
+            dgvResults.DataSource = null;
+            dgvResults.DataSource = _foundItems;
+            dgvResults.Refresh();
+        }
+
+        // 更新日志显示
         private void UpdateLogDisplay()
         {
             if (txtLog.InvokeRequired)
@@ -852,58 +905,211 @@ namespace KSPLocalizationTool
                 return;
             }
 
-            var logEntries = LogManager.GetLogEntries();
-            txtLog.Text = string.Join(Environment.NewLine, logEntries);
+            // 直接获取日志内容（假设日志存储在静态变量中）
+            txtLog.Text = LogManager.LogContent;
+            // 滚动到最后一行
             txtLog.SelectionStart = txtLog.TextLength;
             txtLog.ScrollToCaret();
         }
 
-        private void SaveCurrentSettings()
+        private void DgvResults_CellEndEdit(object sender, DataGridViewCellEventArgs e)
         {
-            // 实现保存设置的逻辑
-            var settings = new Dictionary<string, string>
+            if (e.RowIndex >= 0 && e.RowIndex < _foundItems.Count)
             {
-                { "ModDirectory", txtModDir.Text },
-                { "LocalizationDirectory", txtLocalizationDir.Text },
-                { "BackupDirectory", txtBackupDir.Text },
-                { "TargetLanguage", _targetLanguageCode }
-            };
+                var item = _foundItems[e.RowIndex];
+                if (e.ColumnIndex == dgvResults.Columns["LocalizedText"].Index)
+                {
+                    item.LocalizedText = dgvResults.Rows[e.RowIndex].Cells[e.ColumnIndex].Value?.ToString() ?? "";
+                }
+            }
+        }
 
-            // 保存到配置文件
+        private void BtnReplaceAll_Click(object sender, EventArgs e)
+        {
+            if (_replacementService == null)
+            {
+                MessageBox.Show("替换服务未初始化", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            if (_foundItems.Count == 0)
+            {
+                MessageBox.Show("没有可替换的项", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var result = MessageBox.Show(
+                $"确定要替换所有 {_foundItems.Count} 项吗？\n此操作将修改源文件，建议先备份。",
+                "确认替换",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning);
+
+            if (result == DialogResult.Yes)
+            {
+                btnReplaceAll.Enabled = false;
+                btnStartSearch.Enabled = false;
+                toolStripStatusLabel.Text = "正在替换...";
+                progressBar.Value = 0;
+
+                // 在后台执行替换操作
+                Task.Run(() => _replacementService.ReplaceAll(_foundItems));
+            }
+        }
+
+        private void ProgressUpdated(int progress)
+        {
+            if (progressBar.InvokeRequired)
+            {
+                progressBar.Invoke(new Action<int>(ProgressUpdated), progress);
+            }
+            else
+            {
+                progressBar.Value = progress;
+                toolStripStatusLabel.Text = $"正在替换... {progress}%";
+            }
+        }
+
+        private void ReplacementCompleted(bool success, string message)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new Action<bool, string>(ReplacementCompleted), success, message);
+            }
+            else
+            {
+                progressBar.Value = success ? 100 : 0;
+                toolStripStatusLabel.Text = success ? "替换完成" : "替换失败";
+                btnReplaceAll.Enabled = true;
+                btnStartSearch.Enabled = true;
+
+                MessageBox.Show(message, success ? "成功" : "错误", MessageBoxButtons.OK,
+                    success ? MessageBoxIcon.Information : MessageBoxIcon.Error);
+            }
+        }
+
+        private void BtnRefreshBackups_Click(object sender, EventArgs e)
+        {
+            RefreshBackupList();
+        }
+
+        private void RefreshBackupList()
+        {
             try
             {
-                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-                string configDir = Path.Combine(appData, "KSPLocalizationTool");
-                Directory.CreateDirectory(configDir);
-                string configPath = Path.Combine(configDir, "settings.ini");
+                if (_backupManager == null) return;
 
-                using var writer = new StreamWriter(configPath);
-                foreach (var pair in settings)
+                cboBackups.Items.Clear();
+                var backups = _backupManager.GetBackupDirectories();
+
+                if (backups.Count > 0)
                 {
-                    writer.WriteLine($"{pair.Key}={pair.Value}");
+                    cboBackups.Items.AddRange(backups.ToArray());
+                    cboBackups.SelectedIndex = 0;
+                    btnRestoreBackup.Enabled = true;
                 }
-
-                LogManager.Log("设置已保存");
+                else
+                {
+                    cboBackups.Items.Add("无备份");
+                    cboBackups.SelectedIndex = 0;
+                    btnRestoreBackup.Enabled = false;
+                }
             }
             catch (Exception ex)
             {
-                LogManager.Log($"保存设置失败: {ex.Message}");
+                LogManager.Log($"刷新备份列表失败: {ex.Message}");
             }
         }
-        #endregion
 
-        #region 辅助方法
-        private static List<string> GetParameterList()
+        private void BtnRestoreBackup_Click(object sender, EventArgs e)
         {
-            // 返回参数列表
-            return new List<string> { "name", "title", "description", "tooltip", "message", "text", "label" };
+            if (_backupManager == null || cboBackups.SelectedItem == null ||
+                cboBackups.SelectedItem.ToString() == "无备份")
+            {
+                return;
+            }
+
+            string backupDir = cboBackups.SelectedItem.ToString() ?? "";
+            if (string.IsNullOrEmpty(backupDir) || !Directory.Exists(backupDir))
+            {
+                MessageBox.Show("所选备份不存在", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            var result = MessageBox.Show(
+                $"确定要还原到 {Path.GetFileName(backupDir)} 吗？\n此操作将覆盖当前文件。",
+                "确认还原",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning);
+
+            if (result == DialogResult.Yes)
+            {
+                try
+                {
+                    toolStripStatusLabel.Text = "正在还原备份...";
+                    btnRestoreBackup.Enabled = false;
+                    btnRefreshBackups.Enabled = false;
+
+                    Task.Run(() =>
+                    {
+                        _backupManager.RestoreBackup(backupDir);
+
+                        Invoke(new Action(() =>
+                        {
+                            toolStripStatusLabel.Text = "备份还原完成";
+                            btnRestoreBackup.Enabled = true;
+                            btnRefreshBackups.Enabled = true;
+                            MessageBox.Show("备份已成功还原", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        }));
+                    });
+                }
+                catch (Exception ex)
+                {
+                    LogManager.Log($"还原备份失败: {ex.Message}");
+                    toolStripStatusLabel.Text = "还原失败";
+                    btnRestoreBackup.Enabled = true;
+                    btnRefreshBackups.Enabled = true;
+                }
+            }
         }
 
-        private static List<string> GetHardcodedParameterList()
+        protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            // 返回硬编码参数列表
-            return new List<string> { "Debug.Log", "Console.WriteLine", "GUILayout.Label", "GUILayout.Button", "MessageBox.Show" };
+            base.OnFormClosing(e);
+            SaveSettings();
+            // 直接保存日志内容
+            LogManager.SaveLogToFile();
         }
-        #endregion
+    }
+
+    // 日志管理类（确保在项目中存在）
+    public static class LogManager
+    {
+        private static readonly StringBuilder _logBuilder = new StringBuilder();
+        public static event Action<string>? Logged;
+
+        // 公开日志内容属性，替代GetLogContent方法
+        public static string LogContent => _logBuilder.ToString();
+
+        public static void Log(string message)
+        {
+            string logEntry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}{Environment.NewLine}";
+            _logBuilder.Append(logEntry);
+            Logged?.Invoke(message);
+        }
+
+        // 保存日志到文件的方法，替代SaveLog方法
+        public static void SaveLogToFile()
+        {
+            try
+            {
+                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                string logDir = Path.Combine(appData, "KSPLocalizationTool", "Logs");
+                Directory.CreateDirectory(logDir);
+
+                string logPath = Path.Combine(logDir, $"log_{DateTime.Now:yyyyMMdd}.txt");
+                File.AppendAllText(logPath, LogContent);
+            }
+            catch { /* 忽略日志保存错误 */ }
+        }
     }
 }
