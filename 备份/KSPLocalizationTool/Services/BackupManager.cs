@@ -40,7 +40,11 @@ namespace KSPLocalizationTool.Services
                                                       Path.GetRelativePath(Path.GetPathRoot(relativePath) ?? "", relativePath));
 
                     // 创建原始目录（如果不存在）
-                    Directory.CreateDirectory(Path.GetDirectoryName(originalPath));
+                    string? directoryName = Path.GetDirectoryName(originalPath);
+                    if (!string.IsNullOrEmpty(directoryName))
+                    {
+                        Directory.CreateDirectory(directoryName);
+                    }
 
                     // 还原文件（覆盖现有文件）
                     File.Copy(backupFile, originalPath, true);

@@ -18,6 +18,8 @@ namespace KSPLocalizationTool.Services
         // 替换完成事件
         public event Action<bool, string>? ReplacementCompleted;
 
+        // 删除UpdateDependencies方法
+
         public void ReplaceAll(List<LocalizationItem> items)
         {
             if (items is null || items.Count == 0)

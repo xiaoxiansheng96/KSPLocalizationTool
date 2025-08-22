@@ -1,8 +1,8 @@
-using KSPLocalizationTool;
 using System;
 using System.Windows.Forms;
+using KSPLocalizationTool.Services;
 
-namespace KspModLocalizer
+namespace KSPLocalizationTool
 {
     static class Program
     {
@@ -14,8 +14,14 @@ namespace KspModLocalizer
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            // 修复：MainForm改为Form1（实际窗体类名）
-            Application.Run(new Form1());
+
+            // 初始化日志
+            LogManager.Log("程序启动");
+
+            Application.Run(new MainForm());
+
+            // 程序退出时保存日志
+            LogManager.SaveLog();
         }
     }
 }

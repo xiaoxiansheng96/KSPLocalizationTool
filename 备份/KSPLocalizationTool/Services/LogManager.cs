@@ -9,6 +9,9 @@ namespace KSPLocalizationTool.Services
         private static readonly object _lockObj = new object();
         private static string _logContent = string.Empty;
 
+        // 添加日志更新事件
+        public static event Action<string>? Logged;
+
         static LogManager()
         {
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
@@ -27,6 +30,8 @@ namespace KSPLocalizationTool.Services
                 try
                 {
                     File.AppendAllText(_logFilePath, logEntry);
+                    // 触发日志更新事件
+                    Logged?.Invoke(message);
                 }
                 catch (Exception ex)
                 {
