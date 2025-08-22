@@ -66,7 +66,7 @@ namespace KSPLocalizationTool
             _logService.LogUpdated += LogService_LogUpdated;  // 新增这一行
 
             _searchService = new FileSearchService(_logService);
-            _backupService = new FileBackupService(_logService);
+            _backupService = new FileBackupService(_logService, _appConfig);
             _localizationService = new LocalizationService(_logService);
             _keyGenerator = new LocalizationKeyGenerator();
             // 订阅键值生成事件（新增）
@@ -749,6 +749,30 @@ namespace KSPLocalizationTool
                 _logTextBox.Visible = true;
                 _logTextBox.BringToFront();
             }
+            // 新增：打开日志保存的目录
+            if (_logService != null && Directory.Exists(_logService.LogDirectory))
+            {
+                try
+                {
+                    // 启动资源管理器并定位到日志目录
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo()
+                    {
+                        FileName = _logService.LogDirectory,
+                        UseShellExecute = true,
+                        Verb = "open"
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logService.LogMessage($"打开日志目录失败: {ex.Message}");
+                    MessageBox.Show($"无法打开日志目录: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            else if (_logService != null)
+            {
+                _logService.LogMessage($"日志目录不存在: {_logService.LogDirectory}");
+                MessageBox.Show($"日志目录不存在: {_logService.LogDirectory}", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
         }
         // 加载配置
         private void LoadConfig()
@@ -879,7 +903,79 @@ namespace KSPLocalizationTool
 
         private void ReplaceItems(List<LocalizationItem> items)
         {
-            // 替换项目的逻辑
+            if (items == null || items.Count == 0)
+            {
+                _logService?.LogMessage("没有可替换的项");
+                return;
+            }
+
+            if (_backupService == null || _localizationService == null)
+            {
+                _logService?.LogMessage("服务未初始化");
+                return;
+            }
+
+            int successCount = 0;
+            int failCount = 0;
+
+            foreach (var item in items)
+            {
+                try
+                {
+                    // 验证必要信息
+                    if (string.IsNullOrEmpty(item.FilePath) || !File.Exists(item.FilePath))
+                    {
+                        _logService?.LogMessage($"文件不存在: {item.FilePath}");
+                        failCount++;
+                        continue;
+                    }
+
+                    if (string.IsNullOrEmpty(item.OriginalText) || string.IsNullOrEmpty(item.LocalizationKey))
+                    {
+                        _logService?.LogMessage($"替换信息不完整: {item.FilePath} (行号: {item.LineNumber})");
+                        failCount++;
+                        continue;
+                    }
+
+                    // 备份文件（仅备份一次）
+                    if (!_backupService.IsFileBackedUp(item.FilePath))
+                    {
+                        _backupService.BackupFile(item.FilePath);
+                    }
+
+                    // 读取文件内容
+                    string fileContent = File.ReadAllText(item.FilePath);
+
+                    // 调用LocalizationService进行文本替换（带注释）
+                    string newContent = _localizationService.ReplaceText(
+                        fileContent,
+                        item.ParameterType,
+                        item.OriginalText,
+                        item.LocalizationKey);
+
+                    // 如果内容有变化才写入
+                    if (newContent != fileContent)
+                    {
+                        File.WriteAllText(item.FilePath, newContent);
+                        successCount++;
+                        _logService?.LogMessage($"已替换: {Path.GetFileName(item.FilePath)} (行号: {item.LineNumber})");
+                    }
+                    else
+                    {
+                        _logService?.LogMessage($"未发现可替换内容: {Path.GetFileName(item.FilePath)} (行号: {item.LineNumber})");
+                        failCount++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logService?.LogMessage($"替换失败 {item.FilePath} (行号: {item.LineNumber}): {ex.Message}");
+                    failCount++;
+                }
+            }
+
+            _logService?.LogMessage($"替换完成 - 成功: {successCount}, 失败: {failCount}");
+            MessageBox.Show($"替换完成\n成功: {successCount}\n失败: {failCount}", "替换结果",
+                            MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void MainPanel_SizeChanged(object? sender, EventArgs e)

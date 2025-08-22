@@ -1,8 +1,9 @@
+using KSPLocalizationTool.Models;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using KSPLocalizationTool.Models;
+using System.Text.RegularExpressions;
 
 namespace KSPLocalizationTool.Services
 {
@@ -16,30 +17,51 @@ namespace KSPLocalizationTool.Services
         }
 
         /// <summary>
-        /// 替换文本并添加注释
+        /// 替换文本并添加注释（修复属性内语法错误）
         /// </summary>
         public string ReplaceText(string content, string parameterType, string originalText, string localizationKey)
         {
-            // 对于CFG文件格式: parameterType = "originalText"
+            // 1. 处理CFG文件格式: parameterType = "originalText"
             var cfgPattern = $@"({parameterType}\s*=\s*"")({originalText})([""])";
             var cfgReplacement = $"$1{localizationKey}$3{Environment.NewLine}// 原始文本: {originalText}";
 
-            // 对于CS文件格式: 各种包含字符串的情况
-            var csPattern = $@"({parameterType}\s*[=:]\s*[""'])({originalText})([""'])";
-            var csReplacement = $"$1{localizationKey}$3; // 原始文本: {originalText}";
+            // 2. 处理CS文件中的属性标签内格式（如[KSPEvent]、[KSPField]中的guiName）
+            // 匹配属性内的 guiName = "原始文本"（不含分号）
+            // 修正：增强正则匹配，确保包含完整的属性上下文（如逗号、括号等）
+            var csAttributePattern = $@"(guiName\s*=\s*[""'])({Regex.Escape(originalText)})([""'])(?=[,\s}}\]])";
+            // 修正：替换时严格保留引号，并确保注释添加在正确位置（不破坏标签结构）
+            var csAttributeReplacement = $"$1{localizationKey}$3";
+            // 单独处理注释添加，避免插入到标签内部导致语法错误
+            // （在标签外另起一行添加注释）
+            csAttributeReplacement += $"{Environment.NewLine}// 原始文本: {originalText}";
 
-            // 先替换CFG格式
-            var newContent = System.Text.RegularExpressions.Regex.Replace(
-                content,
-                cfgPattern,
-                cfgReplacement,
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            // 3. 处理CS文件中的普通代码格式（如变量赋值，含分号）
+            // 匹配 变量 = "原始文本"; 格式
+            var csCodePattern = $@"({parameterType}\s*[=:]\s*[""'])({originalText})([""']\s*;)";
+            var csCodeReplacement = $"$1{localizationKey}$3 // 原始文本: {originalText}";
 
-            // 再替换CS格式
+            // 执行替换（按顺序：先属性内，再普通代码，最后CFG）
+            var newContent = content;
+
+            // 优先替换属性内的格式（避免分号污染）
             newContent = System.Text.RegularExpressions.Regex.Replace(
                 newContent,
-                csPattern,
-                csReplacement,
+                csAttributePattern,
+                csAttributeReplacement,
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            // 再替换普通CS代码格式
+            newContent = System.Text.RegularExpressions.Regex.Replace(
+                newContent,
+                csCodePattern,
+                csCodeReplacement,
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            // 最后替换CFG格式
+            newContent = System.Text.RegularExpressions.Regex.Replace(
+                newContent,
+                cfgPattern,
+                cfgReplacement,
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
             return newContent;

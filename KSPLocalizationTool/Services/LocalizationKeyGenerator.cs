@@ -5,6 +5,8 @@ using System.ComponentModel;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace KSPLocalizationTool.Services
 {
@@ -236,7 +238,28 @@ namespace KSPLocalizationTool.Services
 
             worker.RunWorkerAsync();
         }
+        /// <summary>
+        /// 生成原始文本的8位大写哈希值（用于键的唯一性）
+        /// </summary>
+        private string GenerateShortHash(string input)
+        {
+            if (string.IsNullOrEmpty(input))
+                return "00000000";
 
+            using (var md5 = MD5.Create())
+            {
+                byte[] inputBytes = Encoding.UTF8.GetBytes(input);
+                byte[] hashBytes = md5.ComputeHash(inputBytes);
+
+                // 转换为16进制并取前8位（4字节）
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < 4; i++)
+                {
+                    sb.Append(hashBytes[i].ToString("X2"));
+                }
+                return sb.ToString();
+            }
+        }
         /// <summary>
         /// 在后台生成本地化键
         /// </summary>
@@ -278,32 +301,33 @@ namespace KSPLocalizationTool.Services
         }
 
         /// <summary>
-        /// 生成符合KSP规范的本地化键
+        /// 生成符合#LOC_文件类型_文件名称_参数名称_哈希值格式的本地化键
         /// </summary>
         private string GenerateKspCompliantKey(SearchResultItem result, string modulePrefix, HashSet<string> keyTracker)
         {
-            // KSP本地化键规则：
-            // 1. 仅包含大写字母、数字和下划线
-            // 2. 不包含空格、特殊字符和标点
-            // 3. 通常使用模块前缀+描述性名称的格式
-            // 4. 键应该唯一且具有描述性
+            // 1. 提取文件类型（CFG/CS，从文件扩展名获取）
+            string fileExt = Path.GetExtension(result.FilePath).TrimStart('.').ToUpper();
+            string fileType = string.IsNullOrEmpty(fileExt) ? "UNKNOWN" : fileExt;
 
-            // 1. 处理原始文本生成基础键
-            string baseKey = CleanTextForKey(result.OriginalText);
+            // 2. 提取文件名（不含扩展名，清理后大写）
+            string fileName = Path.GetFileNameWithoutExtension(result.FilePath);
+            string cleanedFileName = CleanTextForKey(fileName);
 
-            // 2. 添加参数类型前缀（根据SearchResultItem的ParameterType）
-            string typePrefix = result.ParameterType == "CFG参数" ? "CFG_" : "CODE_";
+            // 3. 处理参数名称（清理后大写）
+            string cleanedParamName = CleanTextForKey(result.ParameterType);
 
-            // 3. 组合完整键（模块前缀+类型前缀+基础键）
-            string fullKey = $"{modulePrefix}{typePrefix}{baseKey}";
+            // 4. 生成原始文本的哈希值
+            string hash = GenerateShortHash(result.OriginalText);
 
-            // 4. 确保键的唯一性
-            string uniqueKey = fullKey;
+            // 5. 组合基础键（严格遵循格式）
+            string baseKey = $"#LOC_{fileType}_{cleanedFileName}_{cleanedParamName}_{hash}";
+
+            // 6. 确保键的唯一性（处理极端哈希碰撞情况）
+            string uniqueKey = baseKey;
             int duplicateCounter = 1;
-
             while (keyTracker.Contains(uniqueKey))
             {
-                uniqueKey = $"{fullKey}_{duplicateCounter++}";
+                uniqueKey = $"{baseKey}_{duplicateCounter++}";
             }
 
             keyTracker.Add(uniqueKey);
@@ -311,33 +335,27 @@ namespace KSPLocalizationTool.Services
         }
 
         /// <summary>
-        /// 清理文本以生成符合规范的键
+        /// 清理文本（用于文件名、参数名称等部分）
         /// </summary>
         private string CleanTextForKey(string text)
         {
             if (string.IsNullOrEmpty(text))
-                return "EMPTY_TEXT";
+                return "UNKNOWN";
 
-            // 截取前50个字符防止键过长
-            string cleaned = text.Length > 50 ? text.Substring(0, 50) : text;
+            // 1. 替换空格为下划线
+            string cleaned = text.Replace(' ', '_');
 
-            // 替换空格为下划线
-            cleaned = cleaned.Replace(' ', '_');
-
-            // 移除所有非字母数字和下划线的字符
+            // 2. 移除所有非字母、数字、下划线的字符
             cleaned = Regex.Replace(cleaned, @"[^a-zA-Z0-9_]", "");
 
-            // 转换为大写
+            // 3. 转换为大写
             cleaned = cleaned.ToUpper();
 
-            // 移除连续的下划线
-            cleaned = Regex.Replace(cleaned, @"__+", "_");
+            // 4. 合并连续下划线，移除首尾下划线
+            cleaned = Regex.Replace(cleaned, @"__+", "_").Trim('_');
 
-            // 移除首尾下划线
-            cleaned = cleaned.Trim('_');
-
-            // 确保键不为空
-            return string.IsNullOrEmpty(cleaned) ? "UNNAMED_TEXT" : cleaned;
+            // 5. 防止空值（兜底）
+            return string.IsNullOrEmpty(cleaned) ? "UNNAMED" : cleaned;
         }
 
         /// <summary>
