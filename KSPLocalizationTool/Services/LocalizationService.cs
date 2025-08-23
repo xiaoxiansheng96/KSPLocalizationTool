@@ -7,19 +7,19 @@ using System.Text.RegularExpressions;
 
 namespace KSPLocalizationTool.Services
 {
-    public class LocalizationService
+    // 将类声明改为partial
+    public partial class LocalizationService
     {
-        private readonly LogService _logService;
-
-        public LocalizationService(LogService logService)
-        {
-            _logService = logService;
-        }
+        // 添加GeneratedRegex属性和分部方法到类内部
+        [GeneratedRegex(@"#LOC_\w+")]
+        private static partial Regex LocalizationKeyRegex();
+    
+        public LocalizationService() { }
 
         /// <summary>
-        /// 替换文本并添加注释（修复属性内语法错误）
+        /// 替换文本并添加注释
         /// </summary>
-        public string ReplaceText(string content, string parameterType, string originalText, string localizationKey)
+        public static string ReplaceText(string content, string parameterType, string originalText, string localizationKey)
         {
             // 1. 处理CFG文件格式: parameterType = "originalText"
             var cfgPattern = $@"({parameterType}\s*=\s*"")({originalText})([""])";
@@ -70,65 +70,66 @@ namespace KSPLocalizationTool.Services
         /// <summary>
         /// 生成本地化文件
         /// </summary>
-        public void GenerateLocalizationFile(string filePath, IEnumerable<LocalizationItem> items, Func<LocalizationItem, string> valueSelector)
+        public static void GenerateLocalizationFile(string filePath, IEnumerable<LocalizationItem> items, Func<LocalizationItem, string> valueSelector)
         {
-            var existingContent = string.Empty;
+            string existingContent;
             var existingKeys = new HashSet<string>();
-
+        
             // 如果文件存在，读取现有内容并记录已有键
             if (File.Exists(filePath))
             {
                 existingContent = File.ReadAllText(filePath);
-
+        
                 // 提取已存在的本地化键
-                var keyMatches = System.Text.RegularExpressions.Regex.Matches(
-                    existingContent,
-                    @"#LOC_\w+");
-
+                var keyMatches = LocalizationKeyRegex().Matches(existingContent);
+        
                 foreach (var match in keyMatches)
                 {
-                    existingKeys.Add(match.ToString());
+if (match?.ToString() is string key)
+{
+    existingKeys.Add(key);
+}
                 }
             }
-
-            using (var writer = new StreamWriter(filePath, true))
+        
+            // 修复using语句的错误格式 - 移除多余的大括号
+            using var writer = new StreamWriter(filePath, true);
+        
+            // 如果是新文件，写入头部
+            if (!File.Exists(filePath))
             {
-                // 如果是新文件，写入头部
-                if (!File.Exists(filePath))
-                {
-                    writer.WriteLine("Localization");
-                    writer.WriteLine("{");
-                    var langCode = Path.GetFileNameWithoutExtension(filePath).Replace(".cfg", "");
-                    writer.WriteLine($"    {langCode}");
-                    writer.WriteLine("    {");
-                }
-                else
-                {
-                    // 在现有文件末尾添加新内容前写入注释
-                    writer.WriteLine();
-                    writer.WriteLine($"        // 自动添加于 {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-                }
+                writer.WriteLine("Localization");
+                writer.WriteLine("{");
+                var langCode = Path.GetFileNameWithoutExtension(filePath).Replace(".cfg", "");
+                writer.WriteLine($"    {langCode}");
+                writer.WriteLine("    {");
+            }
+            else
+            {
+                // 在现有文件末尾添加新内容前写入注释
+                writer.WriteLine();
+                writer.WriteLine($"        // 自动添加于 {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            }
 
-                // 写入新的本地化键值对
-                foreach (var item in items)
-                {
-                    if (existingKeys.Contains(item.LocalizationKey))
-                        continue; // 跳过已存在的键
+            // 写入新的本地化键值对
+            foreach (var item in items)
+            {
+                if (existingKeys.Contains(item.LocalizationKey))
+                    continue; // 跳过已存在的键
 
-                    var value = valueSelector(item)
-                        .Replace("\r", "")
-                        .Replace("\n", " ");
+                var value = valueSelector(item)
+                    .Replace("\r", "")
+                    .Replace("\n", " ");
 
-                    writer.WriteLine($"        {item.LocalizationKey} = {value}");
-                    existingKeys.Add(item.LocalizationKey);
-                }
+                writer.WriteLine($"        {item.LocalizationKey} = {value}");
+                existingKeys.Add(item.LocalizationKey);
+            }
 
-                // 如果是新文件，写入尾部
-                if (!File.Exists(filePath))
-                {
-                    writer.WriteLine("    }");
-                    writer.WriteLine("}");
-                }
+            // 如果是新文件，写入尾部
+            if (!File.Exists(filePath))
+            {
+                writer.WriteLine("    }");
+                writer.WriteLine("}");
             }
         }
     }

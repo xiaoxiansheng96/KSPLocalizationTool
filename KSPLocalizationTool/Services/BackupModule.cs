@@ -12,18 +12,21 @@ namespace KSPLocalizationTool.Services
     public class BackupModule
     {
         // UI控件
-        private Label lblBackupDirectory;
-        private TextBox txtBackupDirectory;
-        private Button btnBrowseBackup;
-        private Button btnCreateBackup;
+
+         public required Label lblBackupDirectory;
+        public required TextBox txtBackupDirectory;
+         public required Button btnBrowseBackup;
+        public required Button btnCreateBackup;
 
         // 备份状态
         private bool _isBackingUp;
 
         // 事件
-        public event Action<string> StatusChanged;
-        public event Action<int> ProgressUpdated;
-        public event Action<bool, string> BackupCompleted;
+        // 事件
+       
+        public event Action<string>? StatusChanged;
+         public event Action<int>? ProgressUpdated;
+        public event Action<bool, string>? BackupCompleted;
 
         /// <summary>
         /// 获取备份目录文本框控件
@@ -49,6 +52,9 @@ namespace KSPLocalizationTool.Services
         /// 构造函数
         /// </summary>
         public BackupModule()
+
+
+
         {
             InitializeControls();
             SetupEventHandlers();
@@ -105,20 +111,47 @@ namespace KSPLocalizationTool.Services
         /// </summary>
         private void SetupEventHandlers()
         {
+            // 构造函数中的事件绑定
+
             btnBrowseBackup.Click += BrowseBackupDirectory;
-            btnCreateBackup.Click += CreateBackup;
+            btnCreateBackup.Click += CreateBackup; // 此处应调用 public 方法，修改为完整签名以避免二义性
+            btnCreateBackup.Click += (sender, e) => CreateBackup(sender!, e);
         }
 
         /// <summary>
         /// 浏览备份目录
         /// </summary>
-        private void BrowseBackupDirectory(object sender, EventArgs e)
+        // 修改BrowseBackupDirectory方法
+     
+        private void BrowseBackupDirectory(object? sender, EventArgs e)
         {
-            using (var fbd = new FolderBrowserDialog
+            using var fbd = new FolderBrowserDialog
             {
                 Description = "选择备份目录",
                 ShowNewFolderButton = true
-            })
+            };
+            if (!string.IsNullOrEmpty(txtBackupDirectory.Text) &&
+                Directory.Exists(txtBackupDirectory.Text))
+            {
+                fbd.SelectedPath = txtBackupDirectory.Text;
+            }
+
+            if (fbd.ShowDialog() == DialogResult.OK)
+            {
+                txtBackupDirectory.Text = fbd.SelectedPath;
+                StatusChanged?.Invoke($"已选择备份目录: {fbd.SelectedPath}");
+            }
+        }
+        
+        // 修改CreateBackup方法
+        
+        private void CreateBackup(object? sender, EventArgs e)
+        {
+            using var fbd = new FolderBrowserDialog
+            {
+                Description = "选择备份目录",
+                ShowNewFolderButton = true
+            };
             {
                 if (!string.IsNullOrEmpty(txtBackupDirectory.Text) &&
                     Directory.Exists(txtBackupDirectory.Text))
@@ -137,7 +170,7 @@ namespace KSPLocalizationTool.Services
         /// <summary>
         /// 创建备份
         /// </summary>
-        public void CreateBackup(object sender, EventArgs e)
+        public void OnCreateBackupButtonClick(object sender, EventArgs e)
         {
             if (_isBackingUp) return;
 
@@ -177,8 +210,8 @@ namespace KSPLocalizationTool.Services
                 }
                 else
                 {
-                    string result = args.Result as string;
-                    BackupCompleted?.Invoke(true, result);
+                    string result = args.Result as string ?? string.Empty;
+                    BackupCompleted?.Invoke(true, result ?? string.Empty);
                     StatusChanged?.Invoke($"备份完成: {result}");
                 }
             };
@@ -221,7 +254,8 @@ namespace KSPLocalizationTool.Services
                     }
 
                     // 创建与源文件相同的目录结构
-                    string relativePath = Path.GetDirectoryName(filePath).Replace(ModRootDirectory, "");
+                    string dirName = Path.GetDirectoryName(filePath) ?? string.Empty;
+                    string relativePath = dirName != null ? dirName.Replace(ModRootDirectory ?? "", "") : "";
                     string targetDir = Path.Combine(backupDirectory, relativePath.TrimStart(Path.DirectorySeparatorChar));
 
                     if (!Directory.Exists(targetDir))
@@ -243,21 +277,22 @@ namespace KSPLocalizationTool.Services
                 // 修复：返回结果而不是设置worker.Result
                 return $"成功备份 {completedFiles}/{totalFiles} 个文件到 {backupDirectory}";
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 worker.ReportProgress(0);
-                throw ex;
+                throw;
             }
         }
 
         /// <summary>
         /// 需要备份的文件列表
         /// </summary>
-        public List<string> FilesToBackup { get; set; } = new List<string>();
+        public List<string> FilesToBackup { get; set; } = [];
 
         /// <summary>
         /// MOD根目录，用于在备份中保持相对路径结构
         /// </summary>
-        public string ModRootDirectory { get; set; }
+        // 添加或修改ModRootDirectory属性定义
+        public string? ModRootDirectory { get; set; }
     }
 }

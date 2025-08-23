@@ -15,10 +15,11 @@ namespace KSPLocalizationTool.Services
     /// </summary>
     public class SearchResult
     {
-        public string FilePath { get; set; }
-        public string ParameterType { get; set; } // "CFG参数" 或 "硬编码参数"
-        public string ParameterKey { get; set; }
-        public string OriginalText { get; set; }
+        // 添加required修饰符确保初始化
+        public required string FilePath { get; set; }
+        public required string ParameterType { get; set; } // "CFG参数" 或 "硬编码参数"
+        public required string ParameterKey { get; set; }
+        public required string OriginalText { get; set; }
         public int LineNumber { get; set; }
     }
 
@@ -27,11 +28,11 @@ namespace KSPLocalizationTool.Services
     /// </summary>
     public class SearchModule
     {
-        // 缓存查找结果
-        private List<SearchResult> _searchResults = new List<SearchResult>();
+        // 缓存查找结果 - 设置为只读并简化初始化
+        private readonly List<SearchResult> _searchResults = [];
 
-        // 排除的目录名称（本地化文件夹）
-        private readonly List<string> _excludedDirectories = new List<string> { "Localization", "localization" };
+        // 排除的目录名称（本地化文件夹） - 设置为只读并简化初始化
+        private readonly List<string> _excludedDirectories = ["Localization", "localization"];
 
         // 查找中标志
         private bool _isSearching;
@@ -39,23 +40,19 @@ namespace KSPLocalizationTool.Services
         // 取消查找标志
         private bool _cancelSearch;
 
-        // 查找进度事件
-        public event Action<int> ProgressUpdated;
+        // 查找进度事件 - 初始化为空委托避免null检查
+        public event Action<int> ProgressUpdated = delegate { };
 
-        // 查找状态变更事件
-        public event Action<string> StatusChanged;
+        // 查找状态变更事件 - 初始化为空委托避免null检查
+        public event Action<string> StatusChanged = delegate { };
 
-        // 查找完成事件
-        public event Action<List<SearchResult>> SearchCompleted;
+        // 查找完成事件 - 初始化为空委托避免null检查
+        public event Action<List<SearchResult>> SearchCompleted = delegate { };
 
-        private AppConfig _config;
-        private List<LocalizationItem> _results = new List<LocalizationItem>();
-
-        // 添加BackgroundWorker的定义
-        private BackgroundWorker _searchWorker = new BackgroundWorker
-        {
-            WorkerSupportsCancellation = true
-        };
+        // 删除未使用的字段
+        // private AppConfig _config;
+        // private List<LocalizationItem> _results = new();
+        // private BackgroundWorker _searchWorker = new() { WorkerSupportsCancellation = true };
 
         /// <summary>
         /// 获取缓存的查找结果
@@ -124,10 +121,10 @@ namespace KSPLocalizationTool.Services
                             ProcessCsFile(file, hardcodeParameters);
                         }
 
-                        // 更新进度
+                        // 更新进度 - 已按要求实现
                         processedFiles++;
                         int progress = (int)((double)processedFiles / totalFiles * 100);
-                        OnProgressUpdated(progress);
+                        ProgressUpdated?.Invoke(progress); // 直接触发事件
                     }
 
                     OnStatusChanged($"查找完成，找到 {_searchResults.Count} 个匹配项");
@@ -201,7 +198,7 @@ namespace KSPLocalizationTool.Services
                 for (int i = 0; i < lines.Length; i++)
                 {
                     string line = lines[i].Trim();
-                    if (string.IsNullOrEmpty(line) || line.StartsWith("//") || line.StartsWith("#"))
+                    if (string.IsNullOrEmpty(line) || line.StartsWith('/') || line.StartsWith('#'))
                         continue;
 
                     // 查找参数匹配
@@ -214,7 +211,7 @@ namespace KSPLocalizationTool.Services
                         if (Regex.IsMatch(line, pattern, RegexOptions.IgnoreCase))
                         {
                             // 提取参数值
-                            string value = line.Substring(line.IndexOf('=') + 1).Trim();
+                            string value = line[(line.IndexOf('=') + 1)..].Trim();
 
                             _searchResults.Add(new SearchResult
                             {
@@ -280,12 +277,16 @@ namespace KSPLocalizationTool.Services
         }
 
         /// <summary>
-        /// 触发进度更新事件
+        /// 触发进度更新事件 - 可移除或保留
         /// </summary>
-        private void OnProgressUpdated(int progress)
-        {
-            ProgressUpdated?.Invoke(progress);
-        }
+        /// 触发进度更新事件 - 可移除或保留
+        /// </summary>
+        // 删除未使用的方法
+        // private void OnProgressUpdated(int progress)
+        // {
+        //     ProgressUpdated?.Invoke(progress);
+        // }
+        #pragma warning restore IDE0051 // 删除未使用的私有成员
 
         /// <summary>
         /// 触发状态变更事件

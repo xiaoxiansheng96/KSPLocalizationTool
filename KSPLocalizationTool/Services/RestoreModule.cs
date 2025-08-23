@@ -13,17 +13,17 @@ namespace KSPLocalizationTool.Services
     public class RestoreModule
     {
         // UI控件
-        private Label lblRestorePoint;
-        private ComboBox cboRestorePoints;
-        private Button btnRestore;
+        private Label lblRestorePoint = null!;
+        private ComboBox cboRestorePoints = null!;
+        private Button btnRestore = null!;
 
         // 恢复状态
         private bool _isRestoring;
 
         // 事件
-        public event Action<string> StatusChanged;
-        public event Action<int> ProgressUpdated;
-        public event Action<bool, string> RestoreCompleted;
+        public event Action<string>? StatusChanged;
+        public event Action<int>? ProgressUpdated;
+        public event Action<bool, string>? RestoreCompleted;
 
         /// <summary>
         /// 获取恢复点标签控件
@@ -43,12 +43,12 @@ namespace KSPLocalizationTool.Services
         /// <summary>
         /// 备份根目录
         /// </summary>
-        public string BackupRootDirectory { get; set; }
+        public string? BackupRootDirectory { get; set; }
 
         /// <summary>
         /// MOD根目录（恢复目标目录）
         /// </summary>
-        public string ModRootDirectory { get; set; }
+        public string? ModRootDirectory { get; set; }
 
         /// <summary>
         /// 构造函数
@@ -174,7 +174,7 @@ namespace KSPLocalizationTool.Services
         /// <summary>
         /// 验证文件夹名称是否为有效的备份名称（yyyyMMdd_HHmmss格式）
         /// </summary>
-        private bool IsValidBackupFolderName(string folderName)
+        private static bool IsValidBackupFolderName(string folderName)
         {
             if (string.IsNullOrEmpty(folderName) || folderName.Length != 15)
                 return false;
@@ -187,7 +187,7 @@ namespace KSPLocalizationTool.Services
         /// <summary>
         /// 从选中的备份恢复文件
         /// </summary>
-        private void RestoreFromBackup(object sender, EventArgs e)
+        private void RestoreFromBackup(object? sender, EventArgs e)
         {
             if (_isRestoring) return;
 
@@ -240,12 +240,13 @@ namespace KSPLocalizationTool.Services
 
                 if (args.Error != null)
                 {
-                    RestoreCompleted?.Invoke(false, $"恢复失败: {args.Error.Message}");
-                    StatusChanged?.Invoke($"恢复失败: {args.Error.Message}");
+                    string errorMsg = args.Error.Message ?? "未知错误";
+                    RestoreCompleted?.Invoke(false, $"恢复失败: {errorMsg}");
+                    StatusChanged?.Invoke($"恢复失败: {errorMsg}");
                 }
                 else
                 {
-                    string resultMsg = args.Result as string;
+                    string resultMsg = args.Result as string ?? "恢复成功";
                     RestoreCompleted?.Invoke(true, resultMsg);
                     StatusChanged?.Invoke($"恢复完成: {resultMsg}");
                 }
@@ -279,11 +280,12 @@ namespace KSPLocalizationTool.Services
                 {
                     // 计算原始文件路径（此处省略具体实现，保持原有逻辑）
                     string relativePath = Path.GetRelativePath(backupDirectory, backupFilePath);
-                    string targetPath = Path.Combine(ModRootDirectory, relativePath);
+                    // 确保ModRootDirectory不为null
+                    string targetPath = Path.Combine(ModRootDirectory ?? string.Empty, relativePath);
 
                     // 创建目标目录
-                    string targetDir = Path.GetDirectoryName(targetPath);
-                    if (!Directory.Exists(targetDir))
+                    string? targetDir = Path.GetDirectoryName(targetPath);
+                    if (!string.IsNullOrEmpty(targetDir) && !Directory.Exists(targetDir))
                     {
                         Directory.CreateDirectory(targetDir);
                     }
@@ -300,21 +302,115 @@ namespace KSPLocalizationTool.Services
                 // 修复：返回结果而不是设置worker.Result
                 return $"成功恢复 {completedFiles}/{totalFiles} 个文件";
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 worker.ReportProgress(0);
-                throw ex;
+                // 使用throw保留原始堆栈信息
+                throw;
             }
         }
 
         // 备份项辅助类（原代码中可能遗漏，补充定义）
         public class BackupItem
         {
-            public string DisplayName { get; set; }
-            public string FolderPath { get; set; }
+            // 添加required修饰符确保属性初始化
+            public required string DisplayName { get; set; }
+            public required string FolderPath { get; set; }
 
             // 用于下拉框显示
             public override string ToString() => DisplayName;
+        }
+        // 在RestoreModule类中添加以下方法
+        /// <summary>
+        /// 执行恢复操作
+        /// </summary>
+        /// <param name="restorePoint">恢复点名称（备份文件夹名）</param>
+        public async Task RestoreAsync(string restorePoint)
+        {
+            if (string.IsNullOrEmpty(restorePoint) || !Directory.Exists(BackupRootDirectory))
+            {
+                StatusChanged?.Invoke("恢复点不存在或备份目录无效");
+                RestoreCompleted?.Invoke(false, "恢复失败：无效的恢复点");
+                return;
+            }
+
+            _isRestoring = true;
+            StatusChanged?.Invoke($"开始恢复到 {restorePoint}...");
+
+            string restoreDir = Path.Combine(BackupRootDirectory, restorePoint);
+            if (!Directory.Exists(restoreDir))
+            {
+                StatusChanged?.Invoke("恢复点目录不存在");
+                RestoreCompleted?.Invoke(false, "恢复失败：恢复点目录不存在");
+                _isRestoring = false;
+                return;
+            }
+
+            // 获取所有备份文件
+            var backupFiles = Directory.GetFiles(restoreDir, "*.*", SearchOption.AllDirectories);
+            int totalFiles = backupFiles.Length;
+            int completed = 0;
+
+            // 异步恢复每个文件
+            foreach (var backupFile in backupFiles)
+            {
+                if (!_isRestoring) break; // 支持取消
+
+                try
+                {
+                    // 计算目标路径（替换备份目录为MOD目录）
+                    string relativePath = backupFile.Replace(restoreDir, "");
+                    // 修复第363行CS8604：确保ModRootDirectory不为null
+                    string targetFile = Path.Combine(ModRootDirectory ?? throw new InvalidOperationException("ModRootDirectory不能为null"), relativePath.TrimStart(Path.DirectorySeparatorChar));
+
+                    // 创建目标目录
+                    // 修复第366行CS8604：检查Path.GetDirectoryName的返回值不为null
+                    string targetDir = Path.GetDirectoryName(targetFile) ?? throw new InvalidOperationException($"无法获取文件 '{targetFile}' 的目录");
+                    if (targetDir != null)
+                    {
+                        Directory.CreateDirectory(targetDir);
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException($"无法获取文件 '{targetFile}' 的目录");
+                    }
+
+                    // 复制文件覆盖目标
+                    File.Copy(backupFile, targetFile, true);
+                    completed++;
+
+                    // 更新进度
+                    int progress = (int)((double)completed / totalFiles * 100);
+                    ProgressUpdated?.Invoke(progress);
+                    StatusChanged?.Invoke($"已恢复：{Path.GetFileName(targetFile)} ({completed}/{totalFiles})");
+                }
+                catch (System.Exception ex)
+                {
+                    StatusChanged?.Invoke($"恢复失败 {Path.GetFileName(backupFile)}：{ex.Message}");
+                }
+
+                // 避免UI卡顿
+                await Task.Delay(10);
+            }
+
+            _isRestoring = false;
+            if (completed == totalFiles)
+            {
+                RestoreCompleted?.Invoke(true, $"成功恢复 {completed} 个文件");
+            }
+            else
+            {
+                RestoreCompleted?.Invoke(false, $"部分恢复：成功 {completed}/{totalFiles} 个文件");
+            }
+        }
+
+        /// <summary>
+        /// 取消恢复操作
+        /// </summary>
+        public void CancelRestore()
+        {
+            _isRestoring = false;
+            StatusChanged?.Invoke("恢复已取消");
         }
     }
 }

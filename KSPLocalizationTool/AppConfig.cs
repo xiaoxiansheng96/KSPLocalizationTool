@@ -45,10 +45,9 @@ namespace KSPLocalizationTool
             try
             {
                 var serializer = new XmlSerializer(typeof(AppConfig));
-                using (var writer = new StreamWriter(ConfigConstants.ConfigFilePath))
-                {
-                    serializer.Serialize(writer, this);
-                }
+                // 第48行修复
+                using var writer = new StreamWriter(ConfigConstants.ConfigFilePath);
+                serializer.Serialize(writer, this);
             }
             catch (Exception ex)
             {
@@ -66,10 +65,9 @@ namespace KSPLocalizationTool
                 if (File.Exists(ConfigConstants.ConfigFilePath))
                 {
                     var serializer = new XmlSerializer(typeof(AppConfig));
-                    using (var reader = new StreamReader(ConfigConstants.ConfigFilePath))
-                    {
-                        return (AppConfig)serializer.Deserialize(reader);
-                    }
+                    using var reader = new StreamReader(ConfigConstants.ConfigFilePath);
+                    var result = serializer.Deserialize(reader) as AppConfig;
+                    return result ?? new AppConfig();
                 }
             }
             catch (Exception ex)

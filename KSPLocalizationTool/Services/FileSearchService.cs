@@ -8,15 +8,14 @@ using KSPLocalizationTool.Models;
 
 namespace KSPLocalizationTool.Services
 {
-    public class FileSearchService
+    public class FileSearchService(LogService logService)
     {
-        private readonly LogService _logService;
+        private readonly LogService _logService = logService;
         private int _processedFiles;
+        private int _totalFiles;
 
-        public FileSearchService(LogService logService)
-        {
-            _logService = logService;
-        }
+        // 添加ProgressUpdated事件
+        public event Action<int>? ProgressUpdated;
 
         /// <summary>
         /// 搜索文件中需要本地化的内容
@@ -44,17 +43,15 @@ namespace KSPLocalizationTool.Services
             var csFiles = Directory.EnumerateFiles(rootDirectory, "*.cs", SearchOption.AllDirectories)
                 .Where(path => !path.StartsWith(localizationDirectory, StringComparison.OrdinalIgnoreCase));
 
+            _totalFiles = cfgFiles.Count() + csFiles.Count();
+
             // 处理CFG文件
             foreach (var file in cfgFiles)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 ProcessCfgFile(file, cfgFilters, results);
                 _processedFiles++;
-
-                if (_processedFiles % 10 == 0)
-                {
-                    _logService.LogMessage($"已处理 {_processedFiles} 个文件");
-                }
+                UpdateProgress();
             }
 
             // 处理CS文件
@@ -63,14 +60,19 @@ namespace KSPLocalizationTool.Services
                 cancellationToken.ThrowIfCancellationRequested();
                 ProcessCsFile(file, csFilters, results);
                 _processedFiles++;
-
-                if (_processedFiles % 10 == 0)
-                {
-                    _logService.LogMessage($"已处理 {_processedFiles} 个文件");
-                }
+                UpdateProgress();
             }
 
             return results;
+        }
+
+        private void UpdateProgress()
+        {
+            if (_totalFiles > 0)
+            {
+                int progress = (int)((double)_processedFiles / _totalFiles * 100);
+                ProgressUpdated?.Invoke(progress);
+            }
         }
 
         // KSPLocalizationTool/Services/FileSearchService.cs

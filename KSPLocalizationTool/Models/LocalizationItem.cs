@@ -29,10 +29,7 @@ namespace KSPLocalizationTool.Models
         /// </summary>
         public string OriginalText { get; set; } = string.Empty;
         
-        /// <summary>
-        /// 翻译文本
-        /// </summary>
-        public string TranslatedText { get; set; } = string.Empty;
+
     }
 
     /// <summary>

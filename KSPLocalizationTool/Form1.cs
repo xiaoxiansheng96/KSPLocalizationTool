@@ -10,28 +10,30 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
+
 namespace KSPLocalizationTool
 {
     public partial class Form1 : Form
     {
         // 应用程序配置
-        private readonly AppConfig _appConfig = new AppConfig();
+        private readonly AppConfig _appConfig = new();
 
         // 服务实例
         private FileSearchService? _searchService;
         private FileBackupService? _backupService;
-        private LocalizationService? _localizationService;
+        // 移除未使用的私有成员 _localizationService
         private LogService? _logService;
         private LocalizationKeyGenerator? _keyGenerator;
-        private List<SearchResultItem> _searchResults;
-
+        private List<SearchResultItem>? _searchResults;
+        private ReplacementService? _replacementService;
+        private ConfigService? _configService;
 
         // 搜索状态
         private bool _isSearching;
         private CancellationTokenSource? _searchCts;
 
         // 本地化数据
-        private readonly BindingList<LocalizationItem> _localizationItems = new BindingList<LocalizationItem>();
+        private readonly BindingList<LocalizationItem> _localizationItems = new();
 
         // 控件引用
         private TextBox? _modDirTextBox;
@@ -43,6 +45,7 @@ namespace KSPLocalizationTool
         private ProgressBar? _progressBar;
         private TextBox? _cfgFilterTextBox;
         private TextBox? _csFilterTextBox;
+        private RestoreModule? _restoreModule; // 声明恢复模块变量
 
         // 修改Form1的构造函数
         public Form1()
@@ -52,10 +55,13 @@ namespace KSPLocalizationTool
             InitializeUI();
             LoadConfig(); // 加载配置
 
-            // 为目录文本框添加文本变更事件，用于自动保存配置
-            _modDirTextBox.TextChanged += (s, e) => SaveConfig();
-            _backupDirTextBox.TextChanged += (s, e) => SaveConfig();
-            _locDirTextBox.TextChanged += (s, e) => SaveConfig();
+            // 为目录文本框添加文本变更事件，用于自动保存配置（确保在InitializeUI()之后）
+            if (_modDirTextBox != null)
+                _modDirTextBox.TextChanged += (s, e) => SaveConfig();
+            if (_backupDirTextBox != null)
+                _backupDirTextBox.TextChanged += (s, e) => SaveConfig();
+            if (_locDirTextBox != null)
+                _locDirTextBox.TextChanged += (s, e) => SaveConfig();
         }
 
         // 初始化服务
@@ -63,13 +69,22 @@ namespace KSPLocalizationTool
         {
             _logService = new LogService(_appConfig.LogDirectory);
             // 订阅日志更新事件
-            _logService.LogUpdated += LogService_LogUpdated;  // 新增这一行
-
+            _logService.LogUpdated += LogService_LogUpdated;
+            _configService = new ConfigService();
+            
+            // 先初始化依赖的服务
             _searchService = new FileSearchService(_logService);
             _backupService = new FileBackupService(_logService, _appConfig);
-            _localizationService = new LocalizationService(_logService);
+// 此代码行已移除，因为 _localizationService 未在类中声明且未使用
+// 若后续需要使用，请先在类中添加对应的私有成员声明
             _keyGenerator = new LocalizationKeyGenerator();
-            // 订阅键值生成事件（新增）
+            
+            // 然后初始化ReplacementService（使用已初始化的服务）
+            _replacementService = new ReplacementService(_logService, _backupService);
+            
+            _restoreModule = new RestoreModule();
+            
+            // 订阅键值生成事件
             _keyGenerator.KeysGenerated += KeyGenerator_KeysGenerated;
         }
 
@@ -77,7 +92,7 @@ namespace KSPLocalizationTool
         private void KeyGenerator_KeysGenerated(List<LocalizationKeyItem> generatedKeys)
         {
             // 确保在UI线程操作（避免跨线程异常）
-            if (_translationGridView.InvokeRequired)
+            if (_translationGridView?.InvokeRequired == true)
             {
                 _translationGridView.Invoke(new Action<List<LocalizationKeyItem>>(KeyGenerator_KeysGenerated), generatedKeys);
                 return;
@@ -96,7 +111,6 @@ namespace KSPLocalizationTool
                     ParameterType = keyItem.ParameterType,
                     OriginalText = keyItem.OriginalText,
                     LocalizationKey = keyItem.GeneratedKey, // 关键：绑定生成的键值
-                    TranslatedText = string.Empty // 初始化为空，等待翻译
                 });
             }
 
@@ -105,17 +119,16 @@ namespace KSPLocalizationTool
         private void LogService_LogUpdated(object? sender, LogEventArgs e)
         {
             // 确保在UI线程更新控件（避免跨线程异常）
-            if (_logTextBox.InvokeRequired)
+            if (_logTextBox?.InvokeRequired == true)
             {
-                _logTextBox.Invoke(new Action(() =>
-                    LogService_LogUpdated(sender, e)));
+                _logTextBox.Invoke(new Action(() => LogService_LogUpdated(sender, e)));
                 return;
             }
 
             // 追加日志到文本框，带时间戳
-            _logTextBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {e.Message}{Environment.NewLine}");
+            _logTextBox?.AppendText($"[{DateTime.Now:HH:mm:ss}] {e.Message}{Environment.NewLine}");
             // 自动滚动到最新日志
-            _logTextBox.ScrollToCaret();
+            _logTextBox?.ScrollToCaret();
         }
         // 初始化UI设置
         private void InitializeUI()
@@ -415,8 +428,8 @@ namespace KSPLocalizationTool
         new DataGridViewTextBoxColumn { HeaderText = "行号", DataPropertyName = "LineNumber", Width = 60 },
         new DataGridViewTextBoxColumn { HeaderText = "参数类型", DataPropertyName = "ParameterType", Width = 100 },
         new DataGridViewTextBoxColumn { HeaderText = "原始文本", DataPropertyName = "OriginalText", Width = 200 },
-        new DataGridViewTextBoxColumn { HeaderText = "本地化键", DataPropertyName = "LocalizationKey", Width = 150 }, // 新增此列
-        new DataGridViewTextBoxColumn { HeaderText = "翻译文本", DataPropertyName = "TranslatedText", Width = 300 }
+        new DataGridViewTextBoxColumn { HeaderText = "本地化键", DataPropertyName = "LocalizationKey", Width = 150 } // 新增此列
+         
     );
 
             // 设置数据源
@@ -436,12 +449,7 @@ namespace KSPLocalizationTool
                 Width = 90
             };
 
-            var translateButton = new Button
-            {
-                Text = "自动翻译",
-                Location = new System.Drawing.Point(110, 5),
-                Width = 90
-            };
+           
 
             var replaceAllButton = new Button
             {
@@ -466,14 +474,14 @@ namespace KSPLocalizationTool
 
             // 添加按钮事件
             generateKeysButton.Click += GenerateKeysButton_Click;
-            translateButton.Click += TranslateButton_Click;
+         
             replaceAllButton.Click += ReplaceAllButton_Click;
             replaceSelectedButton.Click += ReplaceSelectedButton_Click;
             saveLocFilesButton.Click += SaveLocFilesButton_Click;
 
             // 添加按钮到面板
             buttonPanel.Controls.Add(generateKeysButton);
-            buttonPanel.Controls.Add(translateButton);
+             
             buttonPanel.Controls.Add(replaceAllButton);
             buttonPanel.Controls.Add(replaceSelectedButton);
             buttonPanel.Controls.Add(saveLocFilesButton);
@@ -581,15 +589,15 @@ namespace KSPLocalizationTool
         private void AddEventHandlers()
         {
             // 浏览按钮事件
-            var modDirBrowseButton = Controls.Find("btnBrowseMod", true).FirstOrDefault() as Button;
-            var backupDirBrowseButton = Controls.Find("btnBrowseBackup", true).FirstOrDefault() as Button;
-            var locDirBrowseButton = Controls.Find("btnBrowseLocalization", true).FirstOrDefault() as Button;
+            var modDirBrowseButton = Controls.Find("btnBrowseMod", true).FirstOrDefault() is Button button ? button : null;
+            var backupDirBrowseButton = Controls.Find("btnBrowseBackup", true).FirstOrDefault() is Button backupDirBtn ? backupDirBtn : null;
+            var locDirBrowseButton = Controls.Find("btnBrowseLocalization", true).FirstOrDefault() is Button locDirBtn ? locDirBtn : null;
 
             // 搜索按钮事件
-            var startSearchButton = Controls.Find("btnStartSearch", true).FirstOrDefault() as Button;
-            var stopSearchButton = Controls.Find("btnStopSearch", true).FirstOrDefault() as Button;
-            var restoreButton = Controls.Find("btnRestore", true).FirstOrDefault() as Button;
-            var viewLogButton = Controls.Find("btnViewLog", true).FirstOrDefault() as Button;
+            var startSearchButton = Controls.Find("btnStartSearch", true).FirstOrDefault() is Button startSearchBtn ? startSearchBtn : null;
+            var stopSearchButton = Controls.Find("btnStopSearch", true).FirstOrDefault() is Button stopSearchBtn ? stopSearchBtn : null;
+            var restoreButton = Controls.Find("btnRestore", true).FirstOrDefault() is Button restoreBtn ? restoreBtn : null;
+            var viewLogButton = Controls.Find("btnViewLog", true).FirstOrDefault() is Button ? Controls.Find("btnViewLog", true).FirstOrDefault() as Button : null;
 
             if (modDirBrowseButton != null)
                 modDirBrowseButton.Click += ModDirBrowseButton_Click;
@@ -615,30 +623,38 @@ namespace KSPLocalizationTool
 
         private void ModDirBrowseButton_Click(object? sender, EventArgs e)
         {
-            using (var folderDialog = new FolderBrowserDialog())
+            using var folderDialog = new FolderBrowserDialog();
             {
                 // 如果有上次保存的路径，使用它作为初始路径
-                if (!string.IsNullOrEmpty(_modDirTextBox.Text) && Directory.Exists(_modDirTextBox.Text))
-                {
-                    folderDialog.SelectedPath = _modDirTextBox.Text;
-                }
+                if (_backupDirTextBox != null && string.IsNullOrEmpty(_backupDirTextBox.Text))
+{
+    string defaultBackupDir = Path.Combine(folderDialog?.SelectedPath ?? string.Empty, "Backup");
+    _backupDirTextBox.Text = defaultBackupDir;
+    EnsureDirectoryExists(defaultBackupDir);
+}
 
-                if (folderDialog.ShowDialog() == DialogResult.OK)
+                if (folderDialog != null && folderDialog.ShowDialog() == DialogResult.OK)
                 {
-                    _modDirTextBox.Text = folderDialog.SelectedPath;
+if (_modDirTextBox != null)
+{
+    _modDirTextBox.Text = folderDialog.SelectedPath;
+}
 
                     // 自动设置备份目录为MOD目录下的Backup文件夹
-                    if (string.IsNullOrEmpty(_backupDirTextBox.Text))
-                    {
-                        string defaultBackupDir = Path.Combine(folderDialog.SelectedPath, "Backup");
-                        _backupDirTextBox.Text = defaultBackupDir;
-                        EnsureDirectoryExists(defaultBackupDir);
-                    }
+                    if (string.IsNullOrEmpty(_locDirTextBox?.Text))
+{
+    string defaultLocDir = Path.Combine(folderDialog?.SelectedPath ?? string.Empty, "Localization");
+if (_locDirTextBox != null)
+{
+    _locDirTextBox.Text = defaultLocDir;
+}
+    EnsureDirectoryExists(defaultLocDir);
+}
 
                     // 自动设置本地化目录为MOD目录下的Localization文件夹
-                    if (string.IsNullOrEmpty(_locDirTextBox.Text))
+                    if (_locDirTextBox != null && string.IsNullOrEmpty(_locDirTextBox.Text))
                     {
-                        string defaultLocDir = Path.Combine(folderDialog.SelectedPath, "Localization");
+                        string defaultLocDir = !string.IsNullOrEmpty(folderDialog?.SelectedPath) ? Path.Combine(folderDialog.SelectedPath, "Localization") : string.Empty;
                         _locDirTextBox.Text = defaultLocDir;
                         EnsureDirectoryExists(defaultLocDir);
                     }
@@ -663,56 +679,74 @@ namespace KSPLocalizationTool
         }
         private void BackupDirBrowseButton_Click(object? sender, EventArgs e)
         {
-            using (var folderDialog = new FolderBrowserDialog())
+            var folderDialog = new FolderBrowserDialog();
             {
                 if (folderDialog.ShowDialog() == DialogResult.OK)
                 {
-                    _backupDirTextBox!.Text = folderDialog.SelectedPath;
+                    if (_backupDirTextBox != null)
+                    {
+                        _backupDirTextBox.Text = folderDialog.SelectedPath;
+                    }
                 }
             }
         }
 
         private void LocDirBrowseButton_Click(object? sender, EventArgs e)
         {
-            using (var folderDialog = new FolderBrowserDialog())
+            var folderDialog = new FolderBrowserDialog();
             {
                 if (folderDialog.ShowDialog() == DialogResult.OK)
                 {
-                    _locDirTextBox!.Text = folderDialog.SelectedPath;
+                    if (_locDirTextBox != null)
+                    {
+                        _locDirTextBox.Text = folderDialog.SelectedPath;
+                    }
                 }
             }
         }
 
         private void StartSearchButton_Click(object? sender, EventArgs e)
         {
-            if (string.IsNullOrEmpty(_modDirTextBox.Text) || !Directory.Exists(_modDirTextBox.Text))
+            if (string.IsNullOrEmpty(_modDirTextBox?.Text) || !Directory.Exists(_modDirTextBox.Text))
             {
                 MessageBox.Show("请选择有效的MOD目录", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
             // 确保备份目录存在
-            if (string.IsNullOrEmpty(_backupDirTextBox.Text))
+            if (_backupDirTextBox != null && string.IsNullOrEmpty(_backupDirTextBox.Text))
             {
                 // 如果未设置备份目录，自动创建
                 string defaultBackupDir = Path.Combine(_modDirTextBox.Text, "Backup");
                 _backupDirTextBox.Text = defaultBackupDir;
             }
-            EnsureDirectoryExists(_backupDirTextBox.Text);
+            if (_backupDirTextBox != null)
+            {
+                EnsureDirectoryExists(_backupDirTextBox.Text);
+            }
 
             // 确保本地化目录存在
-            if (string.IsNullOrEmpty(_locDirTextBox.Text))
+            if (_locDirTextBox is null || string.IsNullOrEmpty(_locDirTextBox.Text))
             {
                 // 如果未设置本地化目录，自动创建
                 string defaultLocDir = Path.Combine(_modDirTextBox.Text, "Localization");
-                _locDirTextBox.Text = defaultLocDir;
+if (_locDirTextBox != null)
+{
+    _locDirTextBox.Text = defaultLocDir;
+}
             }
-            EnsureDirectoryExists(_locDirTextBox.Text);
+            if (_locDirTextBox != null)
+            {
+                EnsureDirectoryExists(_locDirTextBox.Text);
+            }
 
             _isSearching = true;
             _searchCts = new CancellationTokenSource();
-            _progressBar.Visible = true;
-            _logService.LogMessage("开始搜索文件...");
+            if (_progressBar != null && !_progressBar.IsDisposed)
+            {
+                _progressBar.Visible = true;
+            }
+            _logService?.LogMessage("开始搜索文件...");
 
             // 启动搜索任务
             Task.Run(() => SearchFilesAsync(), _searchCts.Token);
@@ -724,21 +758,49 @@ namespace KSPLocalizationTool
             {
                 _searchCts.Cancel();
                 _isSearching = false;
-                _logService!.LogMessage("正在停止搜索...");
+                _logService?.LogMessage("正在停止搜索...");
             }
         }
 
-        private void RestoreButton_Click(object? sender, EventArgs e)
+        private async void RestoreButton_Click(object? sender, EventArgs e)
         {
-            if (_restoreComboBox!.SelectedItem == null)
+            if (_restoreComboBox?.SelectedItem == null)
             {
                 MessageBox.Show("请选择一个恢复点", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
-            // 这里添加恢复备份的逻辑
-            _logService!.LogMessage("开始恢复备份...");
-            // 实际恢复代码将在后续实现
+            if (_restoreModule == null)
+            {
+                _logService?.LogMessage("恢复服务未初始化");
+                return;
+            }
+
+            // 获取选中的恢复点
+            string selectedRestorePoint = _restoreComboBox?.SelectedItem?.ToString() ?? string.Empty;
+
+            // 配置恢复服务参数
+            _restoreModule.BackupRootDirectory = _backupDirTextBox?.Text;
+            _restoreModule.ModRootDirectory = _modDirTextBox?.Text;
+
+            // 订阅恢复服务的事件（更新日志和进度）
+            _restoreModule.StatusChanged += msg => _logService?.LogMessage(msg);
+            _restoreModule.ProgressUpdated += progress =>
+            {
+                if (_progressBar != null && !_progressBar.IsDisposed)
+                {
+                    _progressBar.Value = progress;
+                    toolStripStatusLabel1.Text = $"恢复进度: {progress}%";
+                }
+            };
+            _restoreModule.RestoreCompleted += (success, msg) =>
+            {
+                _logService?.LogMessage(msg);
+                MessageBox.Show(msg, "恢复结果", MessageBoxButtons.OK, success ? MessageBoxIcon.Information : MessageBoxIcon.Error);
+            };
+
+            // 调用恢复服务（主程序只调用，不处理具体恢复逻辑）
+            await _restoreModule.RestoreAsync(selectedRestorePoint);
         }
 
         private void ViewLogButton_Click(object? sender, EventArgs e)
@@ -775,43 +837,50 @@ namespace KSPLocalizationTool
             }
         }
         // 加载配置
+       // 替换原LoadConfig方法
         private void LoadConfig()
-        {
-            // 加载保存的配置
-            var loadedConfig = AppConfig.Load();
-            _appConfig.ModDirectory = loadedConfig.ModDirectory;
-            _appConfig.BackupDirectory = loadedConfig.BackupDirectory;
-            _appConfig.LocalizationDirectory = loadedConfig.LocalizationDirectory;
+{
+    var config = _configService?.LoadConfig() ?? new AppConfig();
+if (_modDirTextBox != null)
+    _modDirTextBox.Text = config.ModDirectory;
+if (_backupDirTextBox != null)
+    _backupDirTextBox.Text = config.BackupDirectory;
+if (_locDirTextBox != null)
+    _locDirTextBox.Text = config.LocalizationDirectory;
 
-            // 设置文本框值
-            _modDirTextBox.Text = _appConfig.ModDirectory;
-            _backupDirTextBox.Text = _appConfig.BackupDirectory;
-            _locDirTextBox.Text = _appConfig.LocalizationDirectory;
-        }
+    // 加载筛选参数
+var (cfgFilters, csFilters) = _configService?.GetFilters() ?? (Array.Empty<string>(), Array.Empty<string>());
+    if (_cfgFilterTextBox != null)
+        _cfgFilterTextBox.Text = string.Join(Environment.NewLine, cfgFilters);
+    if (_csFilterTextBox != null)
+        _csFilterTextBox.Text = string.Join(Environment.NewLine, csFilters);
+}
         // 添加SaveConfig方法
+       // 替换原SaveConfig方法
         private void SaveConfig()
-        {
-            _appConfig.ModDirectory = _modDirTextBox.Text;
-            _appConfig.BackupDirectory = _backupDirTextBox.Text;
-            _appConfig.LocalizationDirectory = _locDirTextBox.Text;
-            _appConfig.Save();
-        }
+{
+    _configService?.SaveConfig(
+        _modDirTextBox?.Text ?? string.Empty,
+        _backupDirTextBox?.Text ?? string.Empty,
+        _locDirTextBox?.Text ?? string.Empty
+    );
+}
 
         // 保存筛选参数
+        // 替换原SaveFiltersButton_Click方法
         private void SaveFiltersButton_Click(object? sender, EventArgs e)
         {
-            if (_cfgFilterTextBox != null)
-            {
-                _appConfig.CfgFilters = _cfgFilterTextBox.Text.Split(new[] { Environment.NewLine },
-                    StringSplitOptions.RemoveEmptyEntries);
-            }
+            var cfgFilters = _cfgFilterTextBox?.Text.Split(
+                new[] { Environment.NewLine }, 
+                StringSplitOptions.RemoveEmptyEntries
+            ) ?? [];
 
-            if (_csFilterTextBox != null)
-            {
-                _appConfig.CsFilters = _csFilterTextBox.Text.Split(new[] { Environment.NewLine },
-                    StringSplitOptions.RemoveEmptyEntries);
-            }
+            var csFilters = _csFilterTextBox?.Text.Split(
+                new[] { Environment.NewLine }, 
+                StringSplitOptions.RemoveEmptyEntries
+            ) ?? [];
 
+            _configService?.SaveFilters(cfgFilters, csFilters);
             _logService?.LogMessage("筛选参数已保存");
         }
 
@@ -826,7 +895,7 @@ namespace KSPLocalizationTool
             }
 
             // 检查是否有搜索结果（键值生成依赖于搜索结果）
-            var results = _searchResults; // 假设已缓存 SearchFiles 的返回值
+// 移除不需要的 results 赋值操作
             if (_searchResults == null || _searchResults.Count == 0)
             {
                 _logService?.LogMessage("请先执行搜索，获取待处理的文本");
@@ -840,11 +909,7 @@ namespace KSPLocalizationTool
             _keyGenerator.GenerateKeys(sender, e);
         }
 
-        // 翻译按钮点击事件
-        private void TranslateButton_Click(object? sender, EventArgs e)
-        {
-            // 自动翻译的逻辑
-        }
+
 
         // 保存本地化文件按钮点击事件
         private void SaveLocFilesButton_Click(object? sender, EventArgs e)
@@ -861,12 +926,13 @@ namespace KSPLocalizationTool
                 string zhCnPath = Path.Combine(_locDirTextBox.Text, "zh-cn.cfg");
 
                 // 生成英文本地化文件（原始文本）
-                _localizationService!.GenerateLocalizationFile(enUsPath, _localizationItems,
+                LocalizationService.GenerateLocalizationFile(enUsPath, _localizationItems,
                     item => item.OriginalText);
 
-                // 生成中文本地化文件（翻译文本，若无翻译则使用原始文本）
-                _localizationService.GenerateLocalizationFile(zhCnPath, _localizationItems,
-                    item => string.IsNullOrEmpty(item.TranslatedText) ? item.OriginalText : item.TranslatedText);
+                
+                // 生成中文本地化文件（使用原始文本）
+                LocalizationService.GenerateLocalizationFile(zhCnPath, _localizationItems,
+                    item => item.OriginalText);
 
                 _logService!.LogMessage($"已生成本地化文件: {enUsPath} 和 {zhCnPath}");
             }
@@ -878,7 +944,7 @@ namespace KSPLocalizationTool
 
         private void ReplaceAllButton_Click(object? sender, EventArgs e)
         {
-            ReplaceItems(_localizationItems.ToList());
+            ReplaceItems([.. _localizationItems]);
         }
 
         private void ReplaceSelectedButton_Click(object? sender, EventArgs e)
@@ -901,6 +967,7 @@ namespace KSPLocalizationTool
             ReplaceItems(selectedItems);
         }
 
+        // 原来的ReplaceItems方法可以删除，替换为：
         private void ReplaceItems(List<LocalizationItem> items)
         {
             if (items == null || items.Count == 0)
@@ -909,70 +976,15 @@ namespace KSPLocalizationTool
                 return;
             }
 
-            if (_backupService == null || _localizationService == null)
+            // 直接调用功能块的方法，主程序不再包含实施逻辑
+            if (_replacementService is null)
             {
-                _logService?.LogMessage("服务未初始化");
+                _logService?.LogMessage("替换服务未初始化，无法执行替换操作");
                 return;
             }
+            var (successCount, failCount) = _replacementService.ReplaceItems(items);
 
-            int successCount = 0;
-            int failCount = 0;
-
-            foreach (var item in items)
-            {
-                try
-                {
-                    // 验证必要信息
-                    if (string.IsNullOrEmpty(item.FilePath) || !File.Exists(item.FilePath))
-                    {
-                        _logService?.LogMessage($"文件不存在: {item.FilePath}");
-                        failCount++;
-                        continue;
-                    }
-
-                    if (string.IsNullOrEmpty(item.OriginalText) || string.IsNullOrEmpty(item.LocalizationKey))
-                    {
-                        _logService?.LogMessage($"替换信息不完整: {item.FilePath} (行号: {item.LineNumber})");
-                        failCount++;
-                        continue;
-                    }
-
-                    // 备份文件（仅备份一次）
-                    if (!_backupService.IsFileBackedUp(item.FilePath))
-                    {
-                        _backupService.BackupFile(item.FilePath);
-                    }
-
-                    // 读取文件内容
-                    string fileContent = File.ReadAllText(item.FilePath);
-
-                    // 调用LocalizationService进行文本替换（带注释）
-                    string newContent = _localizationService.ReplaceText(
-                        fileContent,
-                        item.ParameterType,
-                        item.OriginalText,
-                        item.LocalizationKey);
-
-                    // 如果内容有变化才写入
-                    if (newContent != fileContent)
-                    {
-                        File.WriteAllText(item.FilePath, newContent);
-                        successCount++;
-                        _logService?.LogMessage($"已替换: {Path.GetFileName(item.FilePath)} (行号: {item.LineNumber})");
-                    }
-                    else
-                    {
-                        _logService?.LogMessage($"未发现可替换内容: {Path.GetFileName(item.FilePath)} (行号: {item.LineNumber})");
-                        failCount++;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logService?.LogMessage($"替换失败 {item.FilePath} (行号: {item.LineNumber}): {ex.Message}");
-                    failCount++;
-                }
-            }
-
+            // 显示结果
             _logService?.LogMessage($"替换完成 - 成功: {successCount}, 失败: {failCount}");
             MessageBox.Show($"替换完成\n成功: {successCount}\n失败: {failCount}", "替换结果",
                             MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -991,56 +1003,37 @@ namespace KSPLocalizationTool
 
             try
             {
-                var progress = new Progress<int>(value =>
+                // 订阅搜索服务的进度事件
+                _searchService.ProgressUpdated += (progress) =>
                 {
                     if (_progressBar != null && !_progressBar.IsDisposed)
                     {
-                        _progressBar.Value = value;
-                        toolStripStatusLabel1.Text = $"搜索进度: {value}%";
+                        _progressBar.Value = progress;
+                        toolStripStatusLabel1.Text = $"搜索进度: {progress}%";
                     }
-                });
+                };
 
+                // 直接调用服务，无需在主程序处理细节
                 var results = await Task.Run(() =>
-                   _searchService.SearchFiles(
-                        _modDirTextBox.Text,                // 1. 根目录（MOD目录）
-                        _appConfig.CfgFilters,              // 2. CFG文件筛选器
-                        _appConfig.CsFilters,               // 3. CS文件筛选器
-                        _locDirTextBox.Text,                // 4. 本地化目录（补充漏传的参数）
-                        _searchCts.Token),                  // 5. 取消令牌（补充缺失的参数）
-                        _searchCts.Token);
+                    _searchService.SearchFiles(
+        _modDirTextBox.Text,
+        (_configService?.GetFilters().CfgFilters ?? []), // 从配置服务获取筛选器，处理可能的空引用
+        (_configService?.GetFilters() ?? (CfgFilters: [], CsFilters: [])).CsFilters,
+        _locDirTextBox?.Text ?? string.Empty, // 添加本地化目录参数
+        _searchCts?.Token ?? CancellationToken.None
+    )
+                );
 
                 _searchResults = results;
-
-
-                foreach (var result in results)
+                _logService?.LogMessage($"搜索完成，找到 {results.Count} 项");
                 {
-                    _localizationItems.Add(new LocalizationItem
-                    {
-                        FilePath = result.FilePath,
-                        OriginalText = result.OriginalText,
-                        ParameterType = result.ParameterType,
-                        LineNumber = result.LineNumber
-                    });
-                }
+                    _logService?.LogMessage($"搜索完成，找到 {results.Count} 项");
 
-                _logService?.LogMessage($"搜索完成，找到 {results.Count} 个可本地化项");
-            }
-            catch (OperationCanceledException)
-            {
-                _logService?.LogMessage("搜索已取消");
+                }
             }
             catch (Exception ex)
             {
-                _logService?.LogMessage($"搜索出错: {ex.Message}");
-            }
-            finally
-            {
-                _isSearching = false;
-                if (_progressBar != null && !_progressBar.IsDisposed)
-                {
-                    _progressBar.Visible = false;
-                    toolStripStatusLabel1.Text = "就绪";
-                }
+                _logService?.LogMessage($"搜索失败: {ex.Message}");
             }
         }
     }
