@@ -52,9 +52,10 @@
             // Form1
             // 
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(800, 450);
+            this.ClientSize = new System.Drawing.Size(600, 400); // 更小的默认尺寸
             this.Controls.Add(this.statusStrip1);
             this.Name = "Form1";
+            this.StartPosition = System.Windows.Forms.FormStartPosition.WindowsDefaultLocation; // 确保不是全屏
             this.Text = "坎巴拉太空计划MOD本地化工具";
             this.statusStrip1.ResumeLayout(false);
             this.statusStrip1.PerformLayout();

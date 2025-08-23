@@ -1,4 +1,5 @@
-using KspModLocalizer;
+// 由于未能找到命名空间 "KspModLocalizer"，暂时移除该 using 语句
+// 若后续需要使用，请确保添加对应的程序集引用
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;

@@ -1,5 +1,8 @@
 ﻿using KSPLocalizationTool.Models;
 using KSPLocalizationTool.Services;
+// 当前报错表明缺少对 Microsoft.Extensions.DependencyInjection 的程序集引用，若确定不需要此引用可移除该行
+// 若需要使用此命名空间，需在项目中添加对 Microsoft.Extensions.DependencyInjection 的 NuGet 包引用
+// 此处先移除该引用行以消除编译错误
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -10,23 +13,21 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-
 namespace KSPLocalizationTool
 {
     public partial class Form1 : Form
     {
+        // 服务依赖
+        private readonly FileSearchService _searchService;
+// 已根据提示删除未使用的私有成员 _backupService
+        private readonly LogService _logService;
+        private readonly LocalizationKeyGenerator _keyGenerator;
+        private readonly ReplacementService _replacementService;
+        private readonly ConfigService _configService;
+        private readonly RestoreModule _restoreModule;
+
         // 应用程序配置
         private readonly AppConfig _appConfig = new();
-
-        // 服务实例
-        private FileSearchService? _searchService;
-        private FileBackupService? _backupService;
-        // 移除未使用的私有成员 _localizationService
-        private LogService? _logService;
-        private LocalizationKeyGenerator? _keyGenerator;
-        private List<SearchResultItem>? _searchResults;
-        private ReplacementService? _replacementService;
-        private ConfigService? _configService;
 
         // 搜索状态
         private bool _isSearching;
@@ -34,6 +35,7 @@ namespace KSPLocalizationTool
 
         // 本地化数据
         private readonly BindingList<LocalizationItem> _localizationItems = new();
+        private List<SearchResultItem>? _searchResults;
 
         // 控件引用
         private TextBox? _modDirTextBox;
@@ -45,17 +47,46 @@ namespace KSPLocalizationTool
         private ProgressBar? _progressBar;
         private TextBox? _cfgFilterTextBox;
         private TextBox? _csFilterTextBox;
-        private RestoreModule? _restoreModule; // 声明恢复模块变量
 
-        // 修改Form1的构造函数
-        public Form1()
+        // 使用依赖注入的构造函数
+        public Form1(
+            AppConfig appConfig,
+            FileSearchService searchService,
+            LogService logService,
+            ConfigService configService,
+            LocalizationKeyGenerator keyGenerator,
+            ReplacementService replacementService,
+            RestoreModule restoreModule
+        )
         {
             InitializeComponent();
-            InitializeServices();
-            InitializeUI();
-            LoadConfig(); // 加载配置
+            _appConfig = appConfig;
+            _searchService = searchService;
+            _logService = logService;
+            _configService = configService;
+            _keyGenerator = keyGenerator;
+            _replacementService = replacementService;
+            _restoreModule = restoreModule;
 
-            // 为目录文本框添加文本变更事件，用于自动保存配置（确保在InitializeUI()之后）
+            // 订阅服务事件
+            _logService.LogUpdated += LogService_LogUpdated;
+            _keyGenerator.KeysGenerated += KeyGenerator_KeysGenerated;
+            _searchService.ProgressUpdated += SearchService_ProgressUpdated;
+
+            InitializeUI();
+            LoadConfig();
+            AddEventHandlers();
+        }
+
+        // 初始化事件处理程序
+        private void InitializeEventHandlers()
+        {
+            // 移除重复的日志事件订阅
+            // _logService.LogUpdated += LogService_LogUpdated;
+            _keyGenerator.KeysGenerated += KeyGenerator_KeysGenerated;
+            _searchService.ProgressUpdated += SearchService_ProgressUpdated;
+
+            // 为目录文本框添加文本变更事件
             if (_modDirTextBox != null)
                 _modDirTextBox.TextChanged += (s, e) => SaveConfig();
             if (_backupDirTextBox != null)
@@ -64,28 +95,21 @@ namespace KSPLocalizationTool
                 _locDirTextBox.TextChanged += (s, e) => SaveConfig();
         }
 
-        // 初始化服务
-        private void InitializeServices()
+        private void SearchService_ProgressUpdated(int progress)
         {
-            _logService = new LogService(_appConfig.LogDirectory);
-            // 订阅日志更新事件
-            _logService.LogUpdated += LogService_LogUpdated;
-            _configService = new ConfigService();
-            
-            // 先初始化依赖的服务
-            _searchService = new FileSearchService(_logService);
-            _backupService = new FileBackupService(_logService, _appConfig);
-// 此代码行已移除，因为 _localizationService 未在类中声明且未使用
-// 若后续需要使用，请先在类中添加对应的私有成员声明
-            _keyGenerator = new LocalizationKeyGenerator();
-            
-            // 然后初始化ReplacementService（使用已初始化的服务）
-            _replacementService = new ReplacementService(_logService, _backupService);
-            
-            _restoreModule = new RestoreModule();
-            
-            // 订阅键值生成事件
-            _keyGenerator.KeysGenerated += KeyGenerator_KeysGenerated;
+            if (InvokeRequired)
+            {
+                Invoke(new Action<int>(SearchService_ProgressUpdated), progress);
+                return;
+            }
+
+            if (_progressBar != null && !_progressBar.IsDisposed)
+            {
+                // 确保进度值在0-100之间
+                int clampedProgress = Math.Min(100, Math.Max(0, progress));
+                _progressBar.Value = clampedProgress;
+                toolStripStatusLabel1.Text = $"搜索进度: {clampedProgress}%";
+            }
         }
 
         // 在Form1.cs中添加
@@ -135,8 +159,8 @@ namespace KSPLocalizationTool
         {
             // 设置窗体基本属性
             Text = "坎巴拉太空计划MOD本地化工具";
-            MinimumSize = new System.Drawing.Size(800, 600);
-            WindowState = FormWindowState.Maximized;
+            MinimumSize = new System.Drawing.Size(800, 600); // 与Designer.cs中的ClientSize一致
+            WindowState = FormWindowState.Normal; // 正常窗口状态
 
             // 初始化选项卡控件
             InitializeTabControl();
@@ -374,16 +398,7 @@ namespace KSPLocalizationTool
                 ScrollBars = RichTextBoxScrollBars.Vertical
             };
 
-            var closeLogButton = new Button
-            {
-                Text = "关闭日志",
-                Dock = DockStyle.Bottom,
-                Height = 30
-            };
-            closeLogButton.Click += (s, e) => _logTextBox.Visible = false;
-
             logPanel.Controls.Add(_logTextBox);
-            logPanel.Controls.Add(closeLogButton);
 
             // 添加进度条
             _progressBar = new ProgressBar
@@ -392,12 +407,12 @@ namespace KSPLocalizationTool
                 Height = 20,
                 Visible = false
             };
+            logPanel.Controls.Add(_progressBar);
 
             // 组装主面板
             mainPanel.Controls.Add(logPanel);
             mainPanel.Controls.Add(buttonPanel);
             mainPanel.Controls.Add(pathPanel);
-            mainPanel.Controls.Add(_progressBar);
 
             // 将主面板添加到选项卡
             tabPage.Controls.Add(mainPanel);
@@ -746,7 +761,12 @@ if (_locDirTextBox != null)
             {
                 _progressBar.Visible = true;
             }
-            _logService?.LogMessage("开始搜索文件...");
+
+            // 防止重复记录日志，添加检查
+            if (!_isSearching)
+            {
+                _logService?.LogMessage("开始搜索文件...");
+            }
 
             // 启动搜索任务
             Task.Run(() => SearchFilesAsync(), _searchCts.Token);
@@ -998,38 +1018,24 @@ var (cfgFilters, csFilters) = _configService?.GetFilters() ?? (Array.Empty<strin
         // 添加搜索文件的异步方法
         private async Task SearchFilesAsync()
         {
-            if (_searchService == null || string.IsNullOrEmpty(_modDirTextBox?.Text))
+            if (string.IsNullOrEmpty(_modDirTextBox?.Text))
                 return;
 
             try
             {
-                // 订阅搜索服务的进度事件
-                _searchService.ProgressUpdated += (progress) =>
-                {
-                    if (_progressBar != null && !_progressBar.IsDisposed)
-                    {
-                        _progressBar.Value = progress;
-                        toolStripStatusLabel1.Text = $"搜索进度: {progress}%";
-                    }
-                };
-
                 // 直接调用服务，无需在主程序处理细节
                 var results = await Task.Run(() =>
                     _searchService.SearchFiles(
-        _modDirTextBox.Text,
-        (_configService?.GetFilters().CfgFilters ?? []), // 从配置服务获取筛选器，处理可能的空引用
-        (_configService?.GetFilters() ?? (CfgFilters: [], CsFilters: [])).CsFilters,
-        _locDirTextBox?.Text ?? string.Empty, // 添加本地化目录参数
-        _searchCts?.Token ?? CancellationToken.None
-    )
+                        _modDirTextBox.Text,
+                        _configService.GetFilters().CfgFilters,
+                        _configService.GetFilters().CsFilters,
+                        _locDirTextBox?.Text ?? string.Empty,
+                        _searchCts?.Token ?? CancellationToken.None
+                    )
                 );
 
                 _searchResults = results;
-                _logService?.LogMessage($"搜索完成，找到 {results.Count} 项");
-                {
-                    _logService?.LogMessage($"搜索完成，找到 {results.Count} 项");
-
-                }
+                _logService.LogMessage($"搜索完成，找到 {results.Count} 项");
             }
             catch (Exception ex)
             {
