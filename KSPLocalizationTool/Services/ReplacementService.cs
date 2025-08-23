@@ -6,17 +6,11 @@ using System.IO;
 namespace KSPLocalizationTool.Services
 {
     // 替换功能的专门服务类（功能块）
-    public class ReplacementService
+    // 使用主构造函数语法
+    public class ReplacementService(LogService logService, FileBackupService backupService)
     {
-        private readonly LogService _logService;
-        private readonly FileBackupService _backupService;
-
-        // 使用主构造函数语法，并移除未使用的localizationService参数
-        public ReplacementService(LogService logService, FileBackupService backupService)
-        {
-            _logService = logService ?? throw new ArgumentNullException(nameof(logService));
-            _backupService = backupService ?? throw new ArgumentNullException(nameof(backupService));
-        }
+        private readonly LogService _logService = logService ?? throw new ArgumentNullException(nameof(logService));
+        private readonly FileBackupService _backupService = backupService ?? throw new ArgumentNullException(nameof(backupService));
 
         // 核心方法：执行替换操作（包含所有实施逻辑）
         public (int successCount, int failCount) ReplaceItems(List<LocalizationItem> items)
