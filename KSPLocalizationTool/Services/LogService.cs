@@ -1,22 +1,32 @@
 using System;
 using System.IO;
+using System.Text;
 
 namespace KSPLocalizationTool.Services
 {
+    public enum LogLevel
+    {
+        Info,
+        Warning,
+        Error,
+        Debug
+    }
+
     public class LogEventArgs : EventArgs
     {
         public string Message { get; }
+        public LogLevel Level { get; }
 
-        public LogEventArgs(string message)
-        {
-            Message = message;
-        }
+        // 使用主构造函数替代传统构造函数
+        public LogEventArgs(string message, LogLevel level = LogLevel.Info) =>
+            (Message, Level) = (message, level);
     }
 
     public class LogService
     {
         public string LogDirectory { get; }
         private readonly string _logFilePath;
+        // 删除未使用的字段
 
         public event EventHandler<LogEventArgs>? LogUpdated;
 

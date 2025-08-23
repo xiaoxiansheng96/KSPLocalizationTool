@@ -78,7 +78,7 @@ namespace KSPLocalizationTool.Services
         private Label lblModulePrefix = null!;
 
         // 生成的本地化键缓存
-        private readonly List<LocalizationKeyItem> _generatedKeys = new();
+        private readonly List<LocalizationKeyItem> _generatedKeys = [];
 
         // 生成状态
         private bool _isGenerating;
@@ -498,7 +498,7 @@ static string GenerateTempKspCompliantKey(SearchResultItem result, string module
         /// <summary>
         /// 查找模块生成的缓存结果（数据源）
         /// </summary>
-        public List<SearchResultItem>? SearchResults { get; set; } = new();
+        public List<SearchResultItem>? SearchResults { get; set; } = [];
     }
 }
 

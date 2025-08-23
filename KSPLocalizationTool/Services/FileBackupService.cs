@@ -12,7 +12,7 @@ namespace KSPLocalizationTool.Services
         /// <summary>
         /// 记录已备份的文件
         /// </summary>
-        private readonly HashSet<string> _backedUpFiles = new();
+        private readonly HashSet<string> _backedUpFiles = [];
 
         /// <summary>
         /// 备份单个文件

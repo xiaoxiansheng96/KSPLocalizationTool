@@ -1,3 +1,4 @@
+// 修改FileSearchService类，添加详细日志和统计信息
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -13,6 +14,9 @@ namespace KSPLocalizationTool.Services
         private readonly LogService _logService = logService;
         private int _processedFiles;
         private int _totalFiles;
+        private int _cfgFileCount; // CFG文件计数
+        private int _csFileCount;  // CS文件计数
+        private int _foundTextCount; // 找到的文本计数
 
         // 添加ProgressUpdated事件
         public event Action<int>? ProgressUpdated;
@@ -29,10 +33,16 @@ namespace KSPLocalizationTool.Services
         {
             var results = new List<SearchResultItem>();
             _processedFiles = 0;
+            _cfgFileCount = 0;
+            _csFileCount = 0;
+            _foundTextCount = 0;
+
+            _logService.LogMessage($"开始搜索: 根目录={rootDirectory} [KSPLocalizationTool]");
+            _logService.LogMessage($"搜索过滤器 - CFG: {string.Join(", ", cfgFilters)}, CS: {string.Join(", ", csFilters)} [KSPLocalizationTool]");
 
             if (!Directory.Exists(rootDirectory))
             {
-                _logService.LogMessage($"目录不存在: {rootDirectory}");
+                _logService.LogMessage($"目录不存在: {rootDirectory}) [KSPLocalizationTool]");
                 return results;
             }
 
@@ -63,6 +73,10 @@ namespace KSPLocalizationTool.Services
                 UpdateProgress();
             }
 
+            // 搜索结束后输出统计信息
+            _logService.LogMessage($"搜索完成: 共搜索 {_totalFiles} 个文件，其中CFG文件 {_cfgFileCount} 个，CS文件 {_csFileCount} 个 [KSPLocalizationTool]");
+            _logService.LogMessage($"找到 {_foundTextCount} 项需要本地化的文本 [KSPLocalizationTool]");
+
             return results;
         }
 
@@ -80,6 +94,8 @@ namespace KSPLocalizationTool.Services
         {
             try
             {
+                _cfgFileCount++;
+                _logService.LogMessage($"正在处理CFG文件: {filePath} [KSPLocalizationTool]");
                 var lines = File.ReadAllLines(filePath);
 
                 for (int i = 0; i < lines.Length; i++) // i为行索引（从0开始）
@@ -106,6 +122,7 @@ namespace KSPLocalizationTool.Services
                                     OriginalText = value,
                                     LineNumber = i + 1 // 行号从1开始
                                 });
+                                _foundTextCount++;
                             }
                         }
                     }
@@ -122,6 +139,8 @@ namespace KSPLocalizationTool.Services
         {
             try
             {
+                _csFileCount++;
+                _logService.LogMessage($"正在处理CS文件: {filePath} [KSPLocalizationTool]");
                 var lines = File.ReadAllLines(filePath); // 按行读取文件
 
                 for (int i = 0; i < lines.Length; i++) // i为行索引（从0开始）
@@ -148,6 +167,7 @@ namespace KSPLocalizationTool.Services
                                         OriginalText = value,
                                         LineNumber = i + 1 // 行号从1开始
                                     });
+                                    _foundTextCount++;
                                 }
                             }
                         }

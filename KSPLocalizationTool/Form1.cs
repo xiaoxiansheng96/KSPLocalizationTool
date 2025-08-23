@@ -19,7 +19,7 @@ namespace KSPLocalizationTool
     {
         // 服务依赖
         private readonly FileSearchService _searchService;
-// 已根据提示删除未使用的私有成员 _backupService
+        // 已根据提示删除未使用的私有成员 _backupService
         private readonly LogService _logService;
         private readonly LocalizationKeyGenerator _keyGenerator;
         private readonly ReplacementService _replacementService;
@@ -34,7 +34,7 @@ namespace KSPLocalizationTool
         private CancellationTokenSource? _searchCts;
 
         // 本地化数据
-        private readonly BindingList<LocalizationItem> _localizationItems = new();
+        private readonly BindingList<LocalizationItem> _localizationItems = [];
         private List<SearchResultItem>? _searchResults;
 
         // 控件引用
@@ -75,22 +75,31 @@ namespace KSPLocalizationTool
 
             InitializeUI();
             LoadConfig();
+            InitializeEventHandlers();
+            // 调用AddEventHandlers方法以添加按钮事件处理程序
             AddEventHandlers();
+
+            // 添加这行代码来加载恢复点
+            _restoreModule.LoadRestorePoints();
         }
 
         // 初始化事件处理程序
         private void InitializeEventHandlers()
         {
-            // 移除重复的日志事件订阅
-            // _logService.LogUpdated += LogService_LogUpdated;
-            _keyGenerator.KeysGenerated += KeyGenerator_KeysGenerated;
-            _searchService.ProgressUpdated += SearchService_ProgressUpdated;
+            // 移除重复的日志事件订阅（保留构造函数中的订阅）
 
             // 为目录文本框添加文本变更事件
             if (_modDirTextBox != null)
                 _modDirTextBox.TextChanged += (s, e) => SaveConfig();
             if (_backupDirTextBox != null)
-                _backupDirTextBox.TextChanged += (s, e) => SaveConfig();
+            {
+                _backupDirTextBox.TextChanged += (s, e) =>
+                {
+                    SaveConfig();
+                    // 备份目录变化时刷新恢复点列表
+                    _restoreModule.LoadRestorePoints();
+                };
+            }
             if (_locDirTextBox != null)
                 _locDirTextBox.TextChanged += (s, e) => SaveConfig();
         }
@@ -169,7 +178,7 @@ namespace KSPLocalizationTool
             InitializeStatusStrip();
 
             // 为控件添加事件处理
-            AddEventHandlers();
+            InitializeEventHandlers();
         }
 
         // 实现InitializeStatusStrip方法
@@ -428,6 +437,57 @@ namespace KSPLocalizationTool
                 Padding = new Padding(10)
             };
 
+            // 创建按钮面板 - 修改Dock为Top，并使用TableLayoutPanel实现平均分布
+            var buttonPanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                Height = 40,
+                ColumnCount = 4,
+                RowCount = 1
+            };
+
+            // 设置列样式，实现平均分布
+            buttonPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
+            buttonPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
+            buttonPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
+            buttonPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
+
+            var generateKeysButton = new Button
+            {
+                Text = "生成键",
+                Dock = DockStyle.Fill
+            };
+
+            var replaceAllButton = new Button
+            {
+                Text = "全部替换",
+                Dock = DockStyle.Fill
+            };
+
+            var replaceSelectedButton = new Button
+            {
+                Text = "替换选中",
+                Dock = DockStyle.Fill
+            };
+
+            var saveLocFilesButton = new Button
+            {
+                Text = "保存本地化文件",
+                Dock = DockStyle.Fill
+            };
+
+            // 添加按钮事件
+            generateKeysButton.Click += GenerateKeysButton_Click;
+            replaceAllButton.Click += ReplaceAllButton_Click;
+            replaceSelectedButton.Click += ReplaceSelectedButton_Click;
+            saveLocFilesButton.Click += SaveLocFilesButton_Click;
+
+            // 添加按钮到面板（按列添加）
+            buttonPanel.Controls.Add(generateKeysButton, 0, 0);
+            buttonPanel.Controls.Add(replaceAllButton, 1, 0);
+            buttonPanel.Controls.Add(replaceSelectedButton, 2, 0);
+            buttonPanel.Controls.Add(saveLocFilesButton, 3, 0);
+
             // 创建数据网格视图
             _translationGridView = new DataGridView
             {
@@ -444,64 +504,13 @@ namespace KSPLocalizationTool
         new DataGridViewTextBoxColumn { HeaderText = "参数类型", DataPropertyName = "ParameterType", Width = 100 },
         new DataGridViewTextBoxColumn { HeaderText = "原始文本", DataPropertyName = "OriginalText", Width = 200 },
         new DataGridViewTextBoxColumn { HeaderText = "本地化键", DataPropertyName = "LocalizationKey", Width = 150 } // 新增此列
-         
+
     );
 
             // 设置数据源
             _translationGridView.DataSource = _localizationItems;
 
-            // 创建按钮面板
-            var buttonPanel = new Panel
-            {
-                Dock = DockStyle.Bottom,
-                Height = 40
-            };
-
-            var generateKeysButton = new Button
-            {
-                Text = "生成键",
-                Location = new System.Drawing.Point(10, 5),
-                Width = 90
-            };
-
-           
-
-            var replaceAllButton = new Button
-            {
-                Text = "全部替换",
-                Location = new System.Drawing.Point(210, 5),
-                Width = 90
-            };
-
-            var replaceSelectedButton = new Button
-            {
-                Text = "替换选中",
-                Location = new System.Drawing.Point(310, 5),
-                Width = 90
-            };
-
-            var saveLocFilesButton = new Button
-            {
-                Text = "保存本地化文件",
-                Location = new System.Drawing.Point(410, 5),
-                Width = 120
-            };
-
-            // 添加按钮事件
-            generateKeysButton.Click += GenerateKeysButton_Click;
-         
-            replaceAllButton.Click += ReplaceAllButton_Click;
-            replaceSelectedButton.Click += ReplaceSelectedButton_Click;
-            saveLocFilesButton.Click += SaveLocFilesButton_Click;
-
-            // 添加按钮到面板
-            buttonPanel.Controls.Add(generateKeysButton);
-             
-            buttonPanel.Controls.Add(replaceAllButton);
-            buttonPanel.Controls.Add(replaceSelectedButton);
-            buttonPanel.Controls.Add(saveLocFilesButton);
-
-            // 组装翻译选项卡
+            // 组装翻译选项卡 - 先添加按钮面板，再添加数据网格视图
             mainPanel.Controls.Add(_translationGridView);
             mainPanel.Controls.Add(buttonPanel);
 
@@ -642,29 +651,29 @@ namespace KSPLocalizationTool
             {
                 // 如果有上次保存的路径，使用它作为初始路径
                 if (_backupDirTextBox != null && string.IsNullOrEmpty(_backupDirTextBox.Text))
-{
-    string defaultBackupDir = Path.Combine(folderDialog?.SelectedPath ?? string.Empty, "Backup");
-    _backupDirTextBox.Text = defaultBackupDir;
-    EnsureDirectoryExists(defaultBackupDir);
-}
+                {
+                    string defaultBackupDir = Path.Combine(folderDialog?.SelectedPath ?? string.Empty, "Backup");
+                    _backupDirTextBox.Text = defaultBackupDir;
+                    EnsureDirectoryExists(defaultBackupDir);
+                }
 
                 if (folderDialog != null && folderDialog.ShowDialog() == DialogResult.OK)
                 {
-if (_modDirTextBox != null)
-{
-    _modDirTextBox.Text = folderDialog.SelectedPath;
-}
+                    if (_modDirTextBox != null)
+                    {
+                        _modDirTextBox.Text = folderDialog.SelectedPath;
+                    }
 
                     // 自动设置备份目录为MOD目录下的Backup文件夹
                     if (string.IsNullOrEmpty(_locDirTextBox?.Text))
-{
-    string defaultLocDir = Path.Combine(folderDialog?.SelectedPath ?? string.Empty, "Localization");
-if (_locDirTextBox != null)
-{
-    _locDirTextBox.Text = defaultLocDir;
-}
-    EnsureDirectoryExists(defaultLocDir);
-}
+                    {
+                        string defaultLocDir = Path.Combine(folderDialog?.SelectedPath ?? string.Empty, "Localization");
+                        if (_locDirTextBox != null)
+                        {
+                            _locDirTextBox.Text = defaultLocDir;
+                        }
+                        EnsureDirectoryExists(defaultLocDir);
+                    }
 
                     // 自动设置本地化目录为MOD目录下的Localization文件夹
                     if (_locDirTextBox != null && string.IsNullOrEmpty(_locDirTextBox.Text))
@@ -745,10 +754,10 @@ if (_locDirTextBox != null)
             {
                 // 如果未设置本地化目录，自动创建
                 string defaultLocDir = Path.Combine(_modDirTextBox.Text, "Localization");
-if (_locDirTextBox != null)
-{
-    _locDirTextBox.Text = defaultLocDir;
-}
+                if (_locDirTextBox != null)
+                {
+                    _locDirTextBox.Text = defaultLocDir;
+                }
             }
             if (_locDirTextBox != null)
             {
@@ -857,46 +866,46 @@ if (_locDirTextBox != null)
             }
         }
         // 加载配置
-       // 替换原LoadConfig方法
+        // 替换原LoadConfig方法
         private void LoadConfig()
-{
-    var config = _configService?.LoadConfig() ?? new AppConfig();
-if (_modDirTextBox != null)
-    _modDirTextBox.Text = config.ModDirectory;
-if (_backupDirTextBox != null)
-    _backupDirTextBox.Text = config.BackupDirectory;
-if (_locDirTextBox != null)
-    _locDirTextBox.Text = config.LocalizationDirectory;
+        {
+            var config = _configService?.LoadConfig() ?? new AppConfig();
+            if (_modDirTextBox != null)
+                _modDirTextBox.Text = config.ModDirectory;
+            if (_backupDirTextBox != null)
+                _backupDirTextBox.Text = config.BackupDirectory;
+            if (_locDirTextBox != null)
+                _locDirTextBox.Text = config.LocalizationDirectory;
 
-    // 加载筛选参数
-var (cfgFilters, csFilters) = _configService?.GetFilters() ?? (Array.Empty<string>(), Array.Empty<string>());
-    if (_cfgFilterTextBox != null)
-        _cfgFilterTextBox.Text = string.Join(Environment.NewLine, cfgFilters);
-    if (_csFilterTextBox != null)
-        _csFilterTextBox.Text = string.Join(Environment.NewLine, csFilters);
-}
+            // 加载筛选参数
+            var (cfgFilters, csFilters) = _configService?.GetFilters() ?? (Array.Empty<string>(), Array.Empty<string>());
+            if (_cfgFilterTextBox != null)
+                _cfgFilterTextBox.Text = string.Join(Environment.NewLine, cfgFilters);
+            if (_csFilterTextBox != null)
+                _csFilterTextBox.Text = string.Join(Environment.NewLine, csFilters);
+        }
         // 添加SaveConfig方法
-       // 替换原SaveConfig方法
+        // 替换原SaveConfig方法
         private void SaveConfig()
-{
-    _configService?.SaveConfig(
-        _modDirTextBox?.Text ?? string.Empty,
-        _backupDirTextBox?.Text ?? string.Empty,
-        _locDirTextBox?.Text ?? string.Empty
-    );
-}
+        {
+            _configService?.SaveConfig(
+                _modDirTextBox?.Text ?? string.Empty,
+                _backupDirTextBox?.Text ?? string.Empty,
+                _locDirTextBox?.Text ?? string.Empty
+            );
+        }
 
         // 保存筛选参数
         // 替换原SaveFiltersButton_Click方法
         private void SaveFiltersButton_Click(object? sender, EventArgs e)
         {
             var cfgFilters = _cfgFilterTextBox?.Text.Split(
-                new[] { Environment.NewLine }, 
+                new[] { Environment.NewLine },
                 StringSplitOptions.RemoveEmptyEntries
             ) ?? [];
 
             var csFilters = _csFilterTextBox?.Text.Split(
-                new[] { Environment.NewLine }, 
+                new[] { Environment.NewLine },
                 StringSplitOptions.RemoveEmptyEntries
             ) ?? [];
 
@@ -915,7 +924,7 @@ var (cfgFilters, csFilters) = _configService?.GetFilters() ?? (Array.Empty<strin
             }
 
             // 检查是否有搜索结果（键值生成依赖于搜索结果）
-// 移除不需要的 results 赋值操作
+            // 移除不需要的 results 赋值操作
             if (_searchResults == null || _searchResults.Count == 0)
             {
                 _logService?.LogMessage("请先执行搜索，获取待处理的文本");
@@ -949,7 +958,7 @@ var (cfgFilters, csFilters) = _configService?.GetFilters() ?? (Array.Empty<strin
                 LocalizationService.GenerateLocalizationFile(enUsPath, _localizationItems,
                     item => item.OriginalText);
 
-                
+
                 // 生成中文本地化文件（使用原始文本）
                 LocalizationService.GenerateLocalizationFile(zhCnPath, _localizationItems,
                     item => item.OriginalText);
@@ -1039,7 +1048,8 @@ var (cfgFilters, csFilters) = _configService?.GetFilters() ?? (Array.Empty<strin
             }
             catch (Exception ex)
             {
-                _logService?.LogMessage($"搜索失败: {ex.Message}");
+                // 可在此处添加异常处理逻辑
+                _logService?.LogMessage($"发生异常: {ex.Message}");
             }
         }
     }
