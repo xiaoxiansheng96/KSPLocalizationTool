@@ -28,8 +28,11 @@ namespace KSPLocalizationTool.Models
         /// 原始文本
         /// </summary>
         public string OriginalText { get; set; } = string.Empty;
-        
 
+        /// <summary>
+        /// 是否替换失败
+        /// </summary>
+        public bool IsReplaceFailed { get; set; } = false;
     }
 
     /// <summary>
@@ -46,6 +49,11 @@ namespace KSPLocalizationTool.Models
         /// 参数类型
         /// </summary>
         public string ParameterType { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 参数键
+        /// </summary>
+        public string ParameterKey { get; set; } = string.Empty; // 添加ParameterKey属性
 
         /// <summary>
         /// 原始文本

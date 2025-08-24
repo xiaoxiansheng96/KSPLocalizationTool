@@ -12,6 +12,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Drawing;
 
 namespace KSPLocalizationTool
 {
@@ -122,12 +123,12 @@ namespace KSPLocalizationTool
         }
 
         // 在Form1.cs中添加
-        private void KeyGenerator_KeysGenerated(List<LocalizationKeyItem> generatedKeys)
+        private void KeyGenerator_KeysGenerated(object? sender, List<LocalizationKeyItem> generatedKeys)
         {
             // 确保在UI线程操作（避免跨线程异常）
             if (_translationGridView?.InvokeRequired == true)
             {
-                _translationGridView.Invoke(new Action<List<LocalizationKeyItem>>(KeyGenerator_KeysGenerated), generatedKeys);
+                _translationGridView.Invoke(new Action<object, List<LocalizationKeyItem>>(KeyGenerator_KeysGenerated), sender, generatedKeys);
                 return;
             }
 
@@ -499,13 +500,24 @@ namespace KSPLocalizationTool
 
             // 添加列
             _translationGridView.Columns.AddRange(
-        new DataGridViewTextBoxColumn { HeaderText = "文件路径", DataPropertyName = "FilePath", Width = 200 },
-        new DataGridViewTextBoxColumn { HeaderText = "行号", DataPropertyName = "LineNumber", Width = 60 },
-        new DataGridViewTextBoxColumn { HeaderText = "参数类型", DataPropertyName = "ParameterType", Width = 100 },
-        new DataGridViewTextBoxColumn { HeaderText = "原始文本", DataPropertyName = "OriginalText", Width = 200 },
-        new DataGridViewTextBoxColumn { HeaderText = "本地化键", DataPropertyName = "LocalizationKey", Width = 150 } // 新增此列
+    new DataGridViewCheckBoxColumn
+    {
+        HeaderText = "替换失败", 
+        DataPropertyName = "IsReplaceFailed", 
+        Width = 80, 
+        ReadOnly = true
+    },
+    new DataGridViewTextBoxColumn { HeaderText = "文件", DataPropertyName = "FilePath", Width = 200 },
+    new DataGridViewTextBoxColumn { HeaderText = "行号", DataPropertyName = "LineNumber", Width = 60 },
+    new DataGridViewTextBoxColumn { HeaderText = "参数类型", DataPropertyName = "ParameterType", Width = 100 },
+    new DataGridViewTextBoxColumn { HeaderText = "原始文本", DataPropertyName = "OriginalText", Width = 200 },
+    new DataGridViewTextBoxColumn { HeaderText = "本地化键", DataPropertyName = "LocalizationKey", Width = 150 }
+);
 
-    );
+            // 添加CellFormatting事件处理程序，将文件路径转换为文件名
+            _translationGridView.CellFormatting += TranslationGridView_CellFormatting;
+            // 添加行预绘制事件处理程序，用于标记替换失败的行
+            _translationGridView.RowPrePaint += TranslationGridView_RowPrePaint;
 
             // 设置数据源
             _translationGridView.DataSource = _localizationItems;
@@ -515,6 +527,42 @@ namespace KSPLocalizationTool
             mainPanel.Controls.Add(buttonPanel);
 
             tabPage.Controls.Add(mainPanel);
+        }
+
+        // CellFormatting事件处理程序，用于将文件路径转换为文件名
+        private void TranslationGridView_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
+        {
+            if (_translationGridView != null && e.ColumnIndex >= 0 && e.ColumnIndex < _translationGridView.Columns.Count)
+            {
+                if (_translationGridView.Columns[e.ColumnIndex].DataPropertyName == "FilePath" && e.Value != null)
+                {
+                    string filePath = Convert.ToString(e.Value) ?? string.Empty;
+                    e.Value = Path.GetFileName(filePath);
+                    e.FormattingApplied = true;
+                }
+            }
+        }
+
+        // 行样式事件处理程序
+        private void TranslationGridView_RowPrePaint(object? sender, DataGridViewRowPrePaintEventArgs e)
+        {
+            if (_translationGridView != null && e.RowIndex >= 0)
+            {
+                var row = _translationGridView.Rows[e.RowIndex];
+                var item = row.DataBoundItem as LocalizationItem;
+
+                if (item != null && item.IsReplaceFailed)
+                {
+                    row.DefaultCellStyle.BackColor = Color.Red;
+                    row.DefaultCellStyle.ForeColor = Color.White;
+                }
+                else
+                {
+                    // 恢复默认样式
+                    row.DefaultCellStyle.BackColor = _translationGridView.DefaultCellStyle.BackColor;
+                    row.DefaultCellStyle.ForeColor = _translationGridView.DefaultCellStyle.ForeColor;
+                }
+            }
         }
 
         // 初始化筛选选项卡
@@ -866,16 +914,27 @@ namespace KSPLocalizationTool
             }
         }
         // 加载配置
-        // 替换原LoadConfig方法
         private void LoadConfig()
         {
             var config = _configService?.LoadConfig() ?? new AppConfig();
             if (_modDirTextBox != null)
                 _modDirTextBox.Text = config.ModDirectory;
+
+            // 确保备份目录有值
             if (_backupDirTextBox != null)
-                _backupDirTextBox.Text = config.BackupDirectory;
+            {
+                _backupDirTextBox.Text = string.IsNullOrEmpty(config.BackupDirectory) && !string.IsNullOrEmpty(_modDirTextBox?.Text)
+                    ? Path.Combine(_modDirTextBox.Text, "Backup")
+                    : config.BackupDirectory;
+            }
+
+            // 确保本地化目录有值
             if (_locDirTextBox != null)
-                _locDirTextBox.Text = config.LocalizationDirectory;
+            {
+                _locDirTextBox.Text = string.IsNullOrEmpty(config.LocalizationDirectory) && !string.IsNullOrEmpty(_modDirTextBox?.Text)
+                    ? Path.Combine(_modDirTextBox.Text, "Localization")
+                    : config.LocalizationDirectory;
+            }
 
             // 加载筛选参数
             var (cfgFilters, csFilters) = _configService?.GetFilters() ?? (Array.Empty<string>(), Array.Empty<string>());
@@ -883,6 +942,12 @@ namespace KSPLocalizationTool
                 _cfgFilterTextBox.Text = string.Join(Environment.NewLine, cfgFilters);
             if (_csFilterTextBox != null)
                 _csFilterTextBox.Text = string.Join(Environment.NewLine, csFilters);
+
+            // 确保目录存在
+            if (_backupDirTextBox != null && !string.IsNullOrEmpty(_backupDirTextBox.Text))
+                EnsureDirectoryExists(_backupDirTextBox.Text);
+            if (_locDirTextBox != null && !string.IsNullOrEmpty(_locDirTextBox.Text))
+                EnsureDirectoryExists(_locDirTextBox.Text);
         }
         // 添加SaveConfig方法
         // 替换原SaveConfig方法
@@ -924,18 +989,27 @@ namespace KSPLocalizationTool
             }
 
             // 检查是否有搜索结果（键值生成依赖于搜索结果）
-            // 移除不需要的 results 赋值操作
             if (_searchResults == null || _searchResults.Count == 0)
             {
                 _logService?.LogMessage("请先执行搜索，获取待处理的文本");
                 return;
             }
 
+            // 将SearchResultItem列表转换为SearchResult列表
+            var searchResults = _searchResults.Select(item => new KSPLocalizationTool.Services.SearchResult
+            {
+                FilePath = item.FilePath,
+                ParameterType = item.ParameterType,
+                ParameterKey = item.ParameterKey, // 现在SearchResultItem有此属性
+                OriginalText = item.OriginalText,
+                LineNumber = item.LineNumber
+            }).ToList();
+
             // 将搜索结果传递给键生成器
-            _keyGenerator.SearchResults = _searchResults;
+            _keyGenerator.SetSearchResults(searchResults);
 
             // 触发键值生成（调用生成器的生成方法）
-            _keyGenerator.GenerateKeys(sender, e);
+            _keyGenerator.GenerateKeys();
         }
 
 
@@ -973,7 +1047,46 @@ namespace KSPLocalizationTool
 
         private void ReplaceAllButton_Click(object? sender, EventArgs e)
         {
-            ReplaceItems([.. _localizationItems]);
+            if (_replacementService is null)
+            {
+                _logService?.LogMessage("替换服务未初始化，无法执行替换操作");
+                return;
+            }
+
+            int successCount = 0;
+            int failCount = 0;
+
+            foreach (var item in _localizationItems)
+            {
+                try
+                {
+                    // 尝试替换单个项
+                    var (success, fail) = _replacementService.ReplaceItems([item]);
+                    item.IsReplaceFailed = fail > 0;
+                     
+                    if (success > 0)
+                        successCount++;
+                    else
+                        failCount++;
+                }
+                catch
+                {
+                    // 如果替换失败
+                    item.IsReplaceFailed = true;
+                    failCount++;
+                }
+            }
+
+            // 显示结果
+            _logService?.LogMessage($"替换完成 - 成功: {successCount}, 失败: {failCount}");
+            MessageBox.Show($"替换完成\n成功: {successCount}\n失败: {failCount}", "替换结果",
+                            MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+            // 刷新表格显示
+            if (_translationGridView != null)
+            {
+                _translationGridView.Refresh();
+            }
         }
 
         private void ReplaceSelectedButton_Click(object? sender, EventArgs e)
@@ -1026,31 +1139,75 @@ namespace KSPLocalizationTool
 
         // 添加搜索文件的异步方法
         private async Task SearchFilesAsync()
+{
+    if (string.IsNullOrEmpty(_modDirTextBox?.Text))
+        return;
+
+    try
+    {
+        var results = await Task.Run(() =>
+            _searchService.SearchFiles(
+                _modDirTextBox.Text,
+                _configService.GetFilters().CfgFilters,
+                _configService.GetFilters().CsFilters,
+                _locDirTextBox?.Text ?? string.Empty,
+                _searchCts?.Token ?? CancellationToken.None
+            )
+        );
+
+        _searchResults = results;
+        
+        // 新增代码：将搜索结果转换为LocalizationItem
+        _localizationItems.Clear();
+        foreach (var r in _searchResults)
         {
-            if (string.IsNullOrEmpty(_modDirTextBox?.Text))
-                return;
-
-            try
+            _localizationItems.Add(new LocalizationItem
             {
-                // 直接调用服务，无需在主程序处理细节
-                var results = await Task.Run(() =>
-                    _searchService.SearchFiles(
-                        _modDirTextBox.Text,
-                        _configService.GetFilters().CfgFilters,
-                        _configService.GetFilters().CsFilters,
-                        _locDirTextBox?.Text ?? string.Empty,
-                        _searchCts?.Token ?? CancellationToken.None
-                    )
-                );
+                FilePath = r.FilePath,
+                LineNumber = r.LineNumber,
+                ParameterType = r.ParameterType,
+                OriginalText = r.OriginalText,
+                LocalizationKey = string.Empty // 初始化为空
+            });
+        }
 
-                _searchResults = results;
-                _logService.LogMessage($"搜索完成，找到 {results.Count} 项");
-            }
-            catch (Exception ex)
+        // 更新数据源
+        if (_translationGridView != null && _translationGridView.InvokeRequired)
+        {
+            _translationGridView.Invoke((MethodInvoker)delegate {
+                _translationGridView.DataSource = null;
+                _translationGridView.DataSource = _localizationItems;
+            });
+        }
+        else
+        {
+// 检查 _translationGridView 是否为 null，避免空引用异常
+if (_translationGridView != null)
+{
+    _translationGridView.DataSource = null;
+}
+            if (_translationGridView != null)
             {
-                // 可在此处添加异常处理逻辑
-                _logService?.LogMessage($"发生异常: {ex.Message}");
+                _translationGridView.DataSource = _localizationItems;
             }
         }
+
+        _logService.LogMessage($"[KSPLocalizationTool] 搜索完成，找到 {results.Count} 项");
+
+        // 移除自动生成键的代码
+        if (_searchResults != null && _searchResults.Count > 0)
+        {
+            _logService?.LogMessage("搜索完成，请点击\"生成键\"按钮来生成本地化键");
+        }
+        else
+        {
+            _logService?.LogMessage("未找到可处理的内容，无需生成键");
+        }
+    }
+    catch (Exception ex)
+    {
+        _logService?.LogMessage($"发生异常: {ex.Message}");
+    }
+}
     }
 }

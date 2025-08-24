@@ -46,12 +46,14 @@ namespace KSPLocalizationTool.Services
                 return results;
             }
 
-            // 搜索所有CFG和CS文件，排除本地化目录
+            // 搜索所有CFG和CS文件，排除本地化目录和backup文件夹
             var cfgFiles = Directory.EnumerateFiles(rootDirectory, "*.cfg", SearchOption.AllDirectories)
-                .Where(path => !path.StartsWith(localizationDirectory, StringComparison.OrdinalIgnoreCase));
+                .Where(path => !path.StartsWith(localizationDirectory, StringComparison.OrdinalIgnoreCase) &&
+                               path.IndexOf("\\backup\\", StringComparison.OrdinalIgnoreCase) < 0);
 
             var csFiles = Directory.EnumerateFiles(rootDirectory, "*.cs", SearchOption.AllDirectories)
-                .Where(path => !path.StartsWith(localizationDirectory, StringComparison.OrdinalIgnoreCase));
+                .Where(path => !path.StartsWith(localizationDirectory, StringComparison.OrdinalIgnoreCase) &&
+                               path.IndexOf("\\backup\\", StringComparison.OrdinalIgnoreCase) < 0);
 
             _totalFiles = cfgFiles.Count() + csFiles.Count();
 
